@@ -1,0 +1,22 @@
+for smoothing you can use Autoregression, moving average. a combination of both Arima i think, EWMA
+
+
+videos to watch
+
+basic stock analysis:
+https://www.youtube.com/watch?v=57qAxRV577c
+
+pandas tutorial:
+https://www.youtube.com/watch?v=FKgtR_LO5N4
+
+numpy tutorial
+https://youtu.be/kbBi1liIrFg
+
+
+
+PORTFOLIO OPTIMIZATION
+https://www.youtube.com/watch?v=7kNwJYGghoE
+
+Market cap is not there but you can get some similar trend value by multiplying open price and volume
+
+a high corelation value between two companies in the same market can be helpful. Buy both to spread out risk
