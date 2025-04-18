@@ -1,26 +1,24 @@
-import yfinance as yf
+import pandas as pd
+import json
 
-# msft = yf.Ticker("Visa")
-# print(msft.info)
-# #history = msft.history(period="max")
-# temp = yf.Tickers
-# history = msft.history(period="3d")
-# print(history.size)
-# print(len(history))
-# #print(history.columns)
-#
-# print(history)
+from data_manager.alpha_vantage import AlphaVantageDownloader
+from data_manager.symbol_manager import SymbolManager
 
-# for ind in history.index:
-#     for col in history.columns:
-#         print(col, ind)
-#         print(history[col][ind])
-#     print("----------------------")
-from symbol_manager import SymbolMananger
-# msft = yf.Ticker("MSFT")
-# history = msft.history(period="3d")
-sm = SymbolMananger()
-hundred_symbols = sm.get_symbols_space_separated()
-data = yf.download(hundred_symbols, period="5d")
-print(data.size)
-print(len(data))
+if __name__ == "__main__":
+    sm = SymbolManager("./data/_nasdaq_screener_1714506906799.csv")
+    all_symbols = sm.get_symbols_space_separated()
+    avDownloader = AlphaVantageDownloader()
+    symbols_not_found = []
+    for symbol in all_symbols:
+        data = avDownloader.download(symbol)
+        with open(f"./data/json/{symbol}.json", "w") as file:
+            json.dump(data, file)
+        try:
+            dataframe = pd.DataFrame.from_dict(data["Time Series (Daily)"], orient='index')
+            dataframe.to_pickle(f"./data/pickle/{symbol}.pkl.gz", compression='gzip')
+        except KeyError:
+            symbols_not_found.append(symbol)
+    print(symbols_not_found)
+
+
+
