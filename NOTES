@@ -18,3 +18,7 @@ https://www.youtube.com/watch?v=7kNwJYGghoE
 Market cap is not there but you can get some similar trend value by multiplying open price and volume
 
 a high corelation value between two companies in the same market can be helpful. Buy both to spread out risk
+
+
+last one that didnt work
+['AAMC', 'ABIO', 'AGBA', 'AIH', 'AJX', 'AKTS', 'ALLG', 'ALRN', 'AMSWA', 'APTO', 'ASCB', 'ASCBW', 'AUVI', 'AUVIP', 'BFI', 'BFIIW', 'BGNE', 'BGXX', 'BIG', 'BREZ', 'BREZR', 'BSIG', 'CARA', 'CDXC', 'CEI', 'CEIX', 'CGA', 'CJJD', 'CNHI', 'CNTG', 'CONN', 'CONX', 'CONXW', 'CPG', 'CSSE', 'CSSEL', 'CSSEN', 'CSSEP', 'CZOO', 'DLA', 'DMTK', 'DRQ', 'EAST', 'EGIO', 'EGOX', 'EMLD', 'EMLDW', 'EURN', 'FANH', 'FUV', 'FWBI', 'GLT', 'GPS', 'GRTS', 'HEAR', 'ICD', 'INAQ', 'ISDR', 'ISUN', 'JAN', 'JBT', 'JCTCF', 'KA', 'LIFE', 'LL', 'LSDI', 'MMAT', 'MOND', 'NEP', 'NFYS', 'NICK', 'NR', 'NYCB', 'OCN', 'OCUP', 'ORAN', 'PFMT', 'PNM', 'PTSI', 'PWFL', 'QRTEA', 'RBT', 'SAI', 'SEEL', 'SGH', 'SHPW', 'SHPWW', 'SLAM', 'SLAMU', 'SLAMW', 'SLNA', 'SLNAW', 'SOI', 'SPGC', 'SQ', 'SSNT', 'TCTM', 'TELZ', 'TNP', 'TPX', 'TRTL', 'TUP', 'TWOU', 'UCBIO', 'VBIV', 'VEV', 'VINO', 'VLD', 'VTNR', 'VVI', 'WISA', 'ZLS', 'ZLSWW', 'ZOM']
