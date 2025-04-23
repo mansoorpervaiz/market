@@ -33,13 +33,27 @@ async def main():
     os.makedirs("./data/json", exist_ok=True)
     os.makedirs("./data/pickle", exist_ok=True)
 
-    sm = SymbolManager("./data/_nasdaq_screener_1714506906799.csv")
-    all_symbols = sm.get_symbols_space_separated()
     not_found = []
-
     sem = asyncio.Semaphore(500)
+
     async with aiohttp.ClientSession() as session:
         downloader = AsyncAlphaVantageDownloader(session)
+
+        # Initialize SymbolManager with the downloader
+        sm = SymbolManager(downloader=downloader)
+
+        # Load symbols from Alpha Vantage API for NYSE and NASDAQ
+        print("Fetching symbols from Alpha Vantage API...")
+        await sm.load_symbols_from_api(exchanges=['NYSE', 'NASDAQ'])
+
+        all_symbols = sm.get_symbols_space_separated()
+        print(f"Fetched {len(all_symbols)} symbols from NYSE and NASDAQ")
+
+        # Save symbols to a text file in the data folder
+        symbols_file = sm.save_symbols_to_file("symbols.txt")
+        print(f"Symbols saved to {symbols_file}")
+
+        # Process each symbol
         tasks = [
             process_symbol(sym, downloader, not_found, sem)
             for sym in all_symbols

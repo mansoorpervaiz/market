@@ -94,7 +94,7 @@ if __name__ == '__main__':
 
     total_report = BackTestReport()
 
-    sm = SymbolManager()
+    sm = SymbolManager(symbols_file="./data/_nasdaq_screener_1714506906799.csv")
     all_symbols = sm.get_symbols_space_separated()
 
     start_date = end_date - relativedelta(years=3)
