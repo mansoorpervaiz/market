@@ -31,3 +31,4 @@ last one that didnt work
 
 https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol={symbol}&outputsize={output_size}&apikey={self.api_key}
 https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol=IBM&outputsize=full&apikey=C09R44C5Y37M2C8W
+https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol=FOXXW&outputsize=full&apikey=C09R44C5Y37M2C8W
