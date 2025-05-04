@@ -129,7 +129,17 @@ dmypy.json
 .pyre/
 
 
-.idea
-data copy
-data
+.idea/
+data copy/
+data/
+data1/
+data_old/
+logs/
+.junie/
 .DS_Store
+
+# Project specific
+*.pickle
+*.csv
+*.xlsx
+*.json
