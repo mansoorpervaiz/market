@@ -1,6 +1,8 @@
-import pandas
+import pandas as pd
 import os
 import asyncio
+import ssl
+import urllib.request
 from .alpha_vantage import AsyncAlphaVantageDownloader
 
 
@@ -32,6 +34,68 @@ class SymbolManager:
         for sym in self.df["Symbol"].values:
             if isinstance(sym, str) and sym.isalnum():
                 self.symbols.append(sym)
+
+    def load_russell_1000_symbols(self):
+        """
+        Load symbols for Russell 1000 constituents from Wikipedia.
+
+        Returns:
+            List of Russell 1000 stock symbols.
+        """
+        # URL of the Wikipedia page containing the Russell 1000 constituents
+        url = 'https://en.wikipedia.org/wiki/Russell_1000_Index'
+
+        # Create a custom SSL context that doesn't verify certificates
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+
+        # Save the original urlopen function
+        original_urlopen = urllib.request.urlopen
+
+        # Define a new urlopen function that uses our SSL context
+        def patched_urlopen(*args, **kwargs):
+            if 'context' not in kwargs:
+                kwargs['context'] = ssl_context
+            return original_urlopen(*args, **kwargs)
+
+        # Monkey-patch the urlopen function
+        urllib.request.urlopen = patched_urlopen
+
+        try:
+            # Read tables from the Wikipedia page
+            tables = pd.read_html(url)
+        finally:
+            # Restore the original urlopen function
+            urllib.request.urlopen = original_urlopen
+
+        # Find the table with the constituents
+        constituents_df = None
+        for table in tables:
+            if 'Ticker' in table.columns:
+                constituents_df = table
+                break
+
+        if constituents_df is None:
+            # If we couldn't find a table with 'Ticker' column, try other column names
+            for table in tables:
+                if 'Symbol' in table.columns:
+                    constituents_df = table
+                    break
+
+        if constituents_df is None:
+            raise ValueError("Could not find Russell 1000 constituents table on Wikipedia")
+
+        # Get the ticker/symbol column
+        symbol_col = 'Ticker' if 'Ticker' in constituents_df.columns else 'Symbol'
+
+        # Extract symbols and filter out non-alphanumeric ones
+        self.symbols = []
+        for sym in constituents_df[symbol_col].values:
+            if isinstance(sym, str) and sym.isalnum():
+                self.symbols.append(sym)
+
+        return self.symbols
 
     async def load_symbols_from_api(self, exchanges=None):
         """

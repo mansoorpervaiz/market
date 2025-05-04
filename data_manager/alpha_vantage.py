@@ -1,41 +1,107 @@
 import aiohttp
 import asyncio
 import csv
+import os
+import ssl
+import time
 from io import StringIO
 
 class AsyncAlphaVantageDownloader:
     BASE_URL = "https://www.alphavantage.co/query"
-    API_KEY = "C09R44C5Y37M2C8W"     # replace with your key
+    # Get API key from environment variable or use default value
+    API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY", "C09R44C5Y37M2C8W")
     RETRIES = 3
+    # Rate limiting: 75 requests per minute
+    RATE_LIMIT = 75
+    RATE_PERIOD = 60  # seconds
 
-    def __init__(self, session: aiohttp.ClientSession = None):
+    # Class-level rate limiter
+    _rate_limit_semaphore = asyncio.Semaphore(RATE_LIMIT)
+    _request_timestamps = []
+    _rate_limit_lock = asyncio.Lock()
+
+    def __init__(self, session: aiohttp.ClientSession = None, verify_ssl: bool = True):
         self._own_session = session is None
         self.session = session
+        self.verify_ssl = verify_ssl
 
-    async def download(self, symbol: str) -> dict:
+        # Create SSL context
+        self.ssl_context = ssl.create_default_context()
+        if not verify_ssl:
+            # Disable SSL verification if requested
+            self.ssl_context.check_hostname = False
+            self.ssl_context.verify_mode = ssl.CERT_NONE
+
+    async def _acquire_rate_limit(self):
+        """
+        Implements rate limiting to ensure we don't exceed RATE_LIMIT requests per RATE_PERIOD.
+        This method will wait if necessary to comply with the rate limit.
+        """
+        async with self._rate_limit_lock:
+            current_time = time.time()
+
+            # Remove timestamps older than RATE_PERIOD
+            self._request_timestamps = [ts for ts in self._request_timestamps 
+                                       if current_time - ts < self.RATE_PERIOD]
+
+            # If we've reached the rate limit, wait until we can make another request
+            if len(self._request_timestamps) >= self.RATE_LIMIT:
+                # Calculate how long to wait
+                oldest_timestamp = min(self._request_timestamps)
+                wait_time = oldest_timestamp + self.RATE_PERIOD - current_time
+                if wait_time > 0:
+                    await asyncio.sleep(wait_time)
+                    # Update current time after waiting
+                    current_time = time.time()
+                    # Clean up timestamps again after waiting
+                    self._request_timestamps = [ts for ts in self._request_timestamps 
+                                              if current_time - ts < self.RATE_PERIOD]
+
+            # Add current timestamp to the list
+            self._request_timestamps.append(current_time)
+
+            # Return the current time for reference
+            return current_time
+
+    async def download(self, symbol: str, function: str = "TIME_SERIES_DAILY_ADJUSTED", **kwargs) -> dict:
         if self._own_session:
             # create a short‑lived session if caller didn't supply one
-            async with aiohttp.ClientSession() as sess:
-                return await self._fetch_with_retries(sess, symbol)
+            async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=self.ssl_context)) as sess:
+                return await self._fetch_with_retries(sess, symbol, function, **kwargs)
         else:
-            return await self._fetch_with_retries(self.session, symbol)
+            return await self._fetch_with_retries(self.session, symbol, function, **kwargs)
 
-    async def _fetch_with_retries(self, session: aiohttp.ClientSession, symbol: str) -> dict:
+    async def _fetch_with_retries(self, session: aiohttp.ClientSession, symbol: str, function: str = "TIME_SERIES_DAILY_ADJUSTED", **kwargs) -> dict:
         params = {
-            "function": "TIME_SERIES_DAILY_ADJUSTED",
+            "function": function,
             "symbol": symbol,
             "outputsize": "full", # "other option is compact"
             "apikey": self.API_KEY,
         }
+        # Add any additional parameters
+        params.update(kwargs)
         backoff = 1
         for attempt in range(1, self.RETRIES + 1):
             try:
+                # Apply rate limiting before making the request
+                await self._acquire_rate_limit()
+
                 async with session.get(self.BASE_URL, params=params) as resp:
                     resp.raise_for_status()
                     data = await resp.json()
-                    # check for valid payload
-                    if "Time Series (Daily)" in data:
+                    # Check if response is empty
+                    if not data:
+                        # Empty response, likely due to rate limiting
+                        pass  # Fall through to retry
+                    # check for valid payload based on function
+                    elif function == "TIME_SERIES_DAILY_ADJUSTED" and "Time Series (Daily)" in data:
                         return data
+                    elif function == "TIME_SERIES_INTRADAY":
+                        # For intraday data, the key includes the interval
+                        interval = kwargs.get('interval', '1min')
+                        time_series_key = f"Time Series ({interval})"
+                        if time_series_key in data:
+                            return data
                     # AlphaVantage will return a note or empty if rate‑limited
                 # fell through → retry
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
@@ -64,7 +130,7 @@ class AsyncAlphaVantageDownloader:
 
         if self._own_session:
             # create a short‑lived session if caller didn't supply one
-            async with aiohttp.ClientSession() as sess:
+            async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=self.ssl_context)) as sess:
                 return await self._fetch_symbols_with_retries(sess, params, exchange)
         else:
             return await self._fetch_symbols_with_retries(self.session, params, exchange)
@@ -73,6 +139,9 @@ class AsyncAlphaVantageDownloader:
         backoff = 1
         for attempt in range(1, self.RETRIES + 1):
             try:
+                # Apply rate limiting before making the request
+                await self._acquire_rate_limit()
+
                 async with session.get(self.BASE_URL, params=params) as resp:
                     resp.raise_for_status()
                     csv_text = await resp.text()

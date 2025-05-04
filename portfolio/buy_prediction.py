@@ -2,6 +2,10 @@ from datetime import datetime, timedelta, date
 from enum import Enum
 from data_manager.data_reader import DataReader, FieldName
 from data_manager.alpha_vantage import ALPHA_VANTAGE_DATE_FORMAT
+from logger import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
 
 
 class ShortAverageGood:

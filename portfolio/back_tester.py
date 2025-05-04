@@ -5,6 +5,10 @@ from dateutil.relativedelta import relativedelta
 
 from data_manager.symbol_manager import SymbolManager
 from portfolio.buy_prediction import ShortAverageGood, BuyAtSMA200, RecommendationType
+from logger import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
 
 
 class BackTester:
@@ -35,7 +39,8 @@ class BackTester:
             try:
                 current_prediction = algo1.predict(symbol=symbol, dt=current_date, bought_price=bought_price)
             except Exception as e:
-                print(traceback.format_exc())
+                logger.error(f"Error predicting for {symbol} on {current_date}: {str(e)}")
+                logger.debug(traceback.format_exc())
                 return report
             if current_prediction.recommendation_type == RecommendationType.SELL:
                 self._process_sale(current_prediction.price, current_date, bought_price, bought_date, report)
@@ -52,8 +57,8 @@ class BackTester:
             current_date += relativedelta(days=1)
 
         if bought_price is not None:
-            print(current_prediction.price, current_date, bought_price, bought_date, report)
-            print(current_prediction.recommendation_type)
+            logger.debug(f"Final state - Price: {current_prediction.price}, Date: {current_date}, Bought Price: {bought_price}, Bought Date: {bought_date}")
+            logger.debug(f"Final recommendation: {current_prediction.recommendation_type}")
 
             self._process_sale(current_prediction.price, current_date, bought_price, bought_date, report)
 
@@ -70,12 +75,12 @@ class BackTestReport:
 
     def generate_report(self):
         total_wins_and_losses = self.wins + self.losses
-        print("BackTestReport")
-        print(f"Average percentage: {statistics.mean(total_wins_and_losses)}")
-        print(f"number of wins: {len(self.wins)}")
-        print(f"number of losses: {len(self.losses)}")
-        print(f"wins: {self.wins}")
-        print(f"losses: {self.losses}")
+        logger.info("BackTestReport")
+        logger.info(f"Average percentage: {statistics.mean(total_wins_and_losses)}")
+        logger.info(f"Number of wins: {len(self.wins)}")
+        logger.info(f"Number of losses: {len(self.losses)}")
+        logger.debug(f"Wins: {self.wins}")
+        logger.debug(f"Losses: {self.losses}")
 
     def extend(self, report):
         self.wins.extend(report.wins)
@@ -121,7 +126,7 @@ if __name__ == '__main__':
 
         loop_start = datetime.now()
 
-        print(f"{i+1}/{len(all_symbols)}: Queueing symbol {symbol}")
+        logger.info(f"{i+1}/{len(all_symbols)}: Queueing symbol {symbol}")
         args_for_starmap.append((BuyAtSMA200, symbol, start_date, end_date))
         pooled += 1
         if pooled < pool_size:
@@ -136,7 +141,7 @@ if __name__ == '__main__':
 
         diff = datetime.now() - loop_start
         rate = pool_size * float(60) / diff.total_seconds()
-        print(f"\n current rate is {rate} ")
+        logger.info(f"Current processing rate: {rate:.2f} symbols per minute")
         # loop_start = datetime.now()
         # print(f"{i + 1}/{len(all_symbols)}. {symbol}, running at rate: {rate}")
         # symbol_report = back_tester.backtest(ShortAverageGood, symbol, start_date, end_date)
@@ -146,4 +151,4 @@ if __name__ == '__main__':
         # rate = float(60) / diff.total_seconds()
 
     total_report.generate_report()
-    print(f"it took {datetime.now() - start_time}")
+    logger.info(f"Total execution time: {datetime.now() - start_time}")

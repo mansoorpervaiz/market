@@ -2,3 +2,4 @@ aiohttp~=3.11.18
 numpy>=1.19.5
 pandas~=2.2.3
 python-dateutil~=2.9.0.post0
+lxml>=4.9.3
