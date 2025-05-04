@@ -24,7 +24,7 @@ logger = get_logger(__name__)
 
 
 class DataReader:
-    DATA_LOCATION = os.path.join("..", "data")
+    DATA_LOCATION = os.path.join("data", "daily", "pickle")
 
     def __init__(self):
         self.avDownloader = AsyncAlphaVantageDownloader()
@@ -33,13 +33,39 @@ class DataReader:
 
     def _load_data(self, symbol):
         try:
-            return pd.read_pickle(os.path.join(self.DATA_LOCATION, symbol + ".pkl"))
+            df = pd.read_pickle(os.path.join(self.DATA_LOCATION, symbol + ".pkl.gz"))
+            logger.debug(f"Loaded data columns: {df.columns.tolist()}")
+
+            # Rename columns to match what the code expects
+            if '4. close' in df.columns and 'close' not in df.columns:
+                df.rename(
+                    columns={
+                        '1. open': FieldName.OPEN.value,
+                        '2. high': FieldName.HIGH.value,
+                        '3. low': FieldName.LOW.value,
+                        '4. close': FieldName.CLOSE.value,
+                        '5. adjusted close': FieldName.ADJUSTED_CLOSE.value,
+                        '6. volume': FieldName.VOLUME.value
+                    },
+                    inplace=True)
+
+                # Convert string values to numeric
+                for col in [FieldName.OPEN.value, FieldName.HIGH.value, FieldName.LOW.value, 
+                           FieldName.CLOSE.value, FieldName.ADJUSTED_CLOSE.value]:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
+
+                # Convert volume to int if it exists
+                if FieldName.VOLUME.value in df.columns:
+                    df[FieldName.VOLUME.value] = pd.to_numeric(df[FieldName.VOLUME.value], errors='coerce').astype('Int64')
+
+            return df
         except FileNotFoundError:
             logger.warning(f"File {symbol} not found")
             return None
 
     def _save_data(self, symbol, symbol_data):
-        symbol_data.to_pickle(os.path.join(self.DATA_LOCATION, symbol + ".pkl"))
+        symbol_data.to_pickle(os.path.join(self.DATA_LOCATION, symbol + ".pkl.gz"))
 
     async def _download_and_save_data(self, symbol):
         symbol_data_dict = await self.avDownloader.download(symbol)
@@ -117,6 +143,13 @@ class DataReader:
 
             # is the data up-to-date
             last_date_in_df = dataframe.index.max()
+            logger.debug(f"last_date_in_df type: {type(last_date_in_df)}, value: {last_date_in_df}")
+            logger.debug(f"end_date type: {type(end_date)}, value: {end_date}")
+
+            # Convert to datetime.date if needed
+            if isinstance(last_date_in_df, str):
+                last_date_in_df = pd.to_datetime(last_date_in_df).date()
+
             if last_date_in_df < end_date:
                 dataframe = await self._update_with_latest_data(symbol=symbol,
                                                           last_date_in_df=last_date_in_df,
@@ -124,8 +157,14 @@ class DataReader:
             self.loaded_data_symbol = symbol
             self.loaded_data = dataframe
 
+            # Ensure index is datetime.date for comparison
+            if not all(isinstance(idx, date) for idx in self.loaded_data.index):
+                self.loaded_data.index = pd.to_datetime(self.loaded_data.index).date
+
         mask = (self.loaded_data.index >= start_date) & (self.loaded_data.index <= end_date)
-        return self.loaded_data.loc[mask]
+        result = self.loaded_data.loc[mask]
+        print(f"DataFrame columns before return: {result.columns.tolist()}")
+        return result
 
     async def get_mean(self, symbol, start_date, end_date, field_name):
         field = FieldName(field_name)
