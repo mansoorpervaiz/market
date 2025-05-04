@@ -150,7 +150,7 @@ class RSIStrategy(MomentumStrategy):
     With trend filter option: only take RSI signals when price > 200-day moving average.
     """
 
-    def __init__(self, data_reader, window=14, oversold=30, overbought=70, use_trend_filter=False, ma_period=200):
+    def __init__(self, data_reader, window=14, oversold=30, overbought=70, use_trend_filter=True, ma_period=200):
         """
         Initialize the RSI strategy.
 
