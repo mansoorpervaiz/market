@@ -1,6 +1,6 @@
 import sys
 import os
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from data_manager.symbol_manager import SymbolManager
 
@@ -28,7 +28,8 @@ if __name__ == "__main__":
     symbols = test_load_russell_1000_symbols()
     
     # Save symbols to a file
-    with open("russell_1000_symbols.txt", "w") as f:
+    file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "russell_1000_symbols.txt")
+    with open(file_path, "w") as f:
         for symbol in symbols:
             f.write(symbol + "\n")
     
