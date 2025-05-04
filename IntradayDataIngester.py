@@ -9,6 +9,10 @@ import calendar
 
 from data_manager.alpha_vantage import AsyncAlphaVantageDownloader
 from data_manager.symbol_manager import SymbolManager
+from logger import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
 
 def generate_month_list(start_year=2014, start_month=1):
     """
@@ -40,7 +44,7 @@ async def process_symbol(symbol: str,
 
     # Generate list of months from Jan 2014 to current month
     months = generate_month_list(2014, 1)
-    print(f"Processing {symbol} for {len(months)} months from {months[-1]} to {months[0]}")
+    logger.info(f"Processing {symbol} for {len(months)} months from {months[-1]} to {months[0]}")
 
     # Dictionary to store combined time series data
     combined_time_series = {}
@@ -60,7 +64,7 @@ async def process_symbol(symbol: str,
         # If we've had too many consecutive empty months, skip the rest
         # This helps avoid unnecessary API calls for symbols that weren't listed in earlier years
         if consecutive_empty_months >= max_consecutive_empty:
-            print(f"Skipping remaining months for {symbol} after {max_consecutive_empty} consecutive empty months")
+            logger.info(f"Skipping remaining months for {symbol} after {max_consecutive_empty} consecutive empty months")
             break
 
         # acquire against the loop's own semaphore for each month
@@ -86,13 +90,13 @@ async def process_symbol(symbol: str,
                     combined_time_series.update(ts)
                     got_data = True
                     consecutive_empty_months = 0  # Reset counter when we get data
-                    print(f"Got data for {symbol} for month {month} with {len(ts)} data points")
+                    logger.info(f"Got data for {symbol} for month {month} with {len(ts)} data points")
                 else:
                     consecutive_empty_months += 1
-                    print(f"No data for {symbol} for month {month} (consecutive empty: {consecutive_empty_months})")
+                    logger.info(f"No data for {symbol} for month {month} (consecutive empty: {consecutive_empty_months})")
             except Exception as e:
                 consecutive_empty_months += 1
-                print(f"Error processing {symbol} for month {month}: {str(e)}")
+                logger.error(f"Error processing {symbol} for month {month}: {str(e)}")
 
     # If we got data for any month, save it
     if got_data:
@@ -110,10 +114,10 @@ async def process_symbol(symbol: str,
         df = pd.DataFrame.from_dict(combined_time_series, orient="index")
         df.to_pickle(f"./data/intraday/pickle/{interval}/{symbol}.pkl.gz", compression="gzip")
 
-        print(f"Saved combined data for {symbol} with {len(combined_time_series)} total data points")
+        logger.info(f"Saved combined data for {symbol} with {len(combined_time_series)} total data points")
     else:
         not_found.append(symbol)
-        print(f"No data found for {symbol} across all months")
+        logger.warning(f"No data found for {symbol} across all months")
 
 
 async def main():
@@ -131,7 +135,7 @@ async def main():
 
     # Calculate and display the number of months we'll be processing
     months = generate_month_list(2014, 1)
-    print(f"Will process data for {len(months)} months from {months[-1]} to {months[0]}")
+    logger.info(f"Will process data for {len(months)} months from {months[-1]} to {months[0]}")
 
     # Optional: Process only a subset of symbols to avoid hitting API limits
     # Set max_symbols to None to process all symbols
@@ -150,11 +154,11 @@ async def main():
     for interval in intervals:
         missing_symbols_path = f"./data/intraday/missing_symbols_{interval}.txt"
         if os.path.exists(missing_symbols_path):
-            print(f"Found missing symbols file for {interval} at {missing_symbols_path}")
+            logger.info(f"Found missing symbols file for {interval} at {missing_symbols_path}")
             with open(missing_symbols_path, "r") as f:
                 missing_symbols = [line.strip() for line in f if line.strip()]
             missing_symbols_by_interval[interval] = missing_symbols
-            print(f"Read {len(missing_symbols)} missing symbols for {interval}")
+            logger.info(f"Read {len(missing_symbols)} missing symbols for {interval}")
 
     # Create a custom SSL context that doesn't verify certificates
     # Note: Disabling SSL verification is not recommended for production use
@@ -170,19 +174,19 @@ async def main():
         sm = SymbolManager(downloader=downloader)
 
         # Load symbols for Russell 1000 constituents from Wikipedia
-        print("Fetching Russell 1000 symbols from Wikipedia...")
+        logger.info("Fetching Russell 1000 symbols from Wikipedia...")
         sm.load_russell_1000_symbols()
 
         all_symbols = sm.get_symbols_space_separated()
-        print(f"Fetched {len(all_symbols)} symbols from Russell 1000 Index")
+        logger.info(f"Fetched {len(all_symbols)} symbols from Russell 1000 Index")
 
         # Save symbols to a text file in the data folder
         symbols_file = sm.save_symbols_to_file("symbols.txt")
-        print(f"Symbols saved to {symbols_file}")
+        logger.info(f"Symbols saved to {symbols_file}")
 
         # Process each symbol for each interval
         for interval in intervals:
-            print(f"Processing {interval} interval data...")
+            logger.info(f"Processing {interval} interval data...")
             interval_not_found = []
 
             # If resume is enabled and no specific start symbol is provided,
@@ -198,21 +202,21 @@ async def main():
                                 last_index = all_symbols.index(last_symbol)
                                 if last_index < len(all_symbols) - 1:  # If not the last symbol
                                     start_from_symbol = all_symbols[last_index + 1]
-                                    print(f"Resuming from symbol {start_from_symbol} (after {last_symbol})")
+                                    logger.info(f"Resuming from symbol {start_from_symbol} (after {last_symbol})")
                                 else:
-                                    print(f"Already processed all symbols for {interval}")
+                                    logger.info(f"Already processed all symbols for {interval}")
                                     continue  # Skip this interval
                             except ValueError:
-                                print(f"Last symbol {last_symbol} not found in current symbol list, starting from beginning")
+                                logger.warning(f"Last symbol {last_symbol} not found in current symbol list, starting from beginning")
 
             # Filter symbols based on start_from_symbol if specified
             if start_from_symbol:
                 try:
                     start_index = all_symbols.index(start_from_symbol)
                     filtered_symbols = all_symbols[start_index:]
-                    print(f"Starting from symbol {start_from_symbol} (index {start_index})")
+                    logger.info(f"Starting from symbol {start_from_symbol} (index {start_index})")
                 except ValueError:
-                    print(f"Symbol {start_from_symbol} not found, starting from the beginning")
+                    logger.warning(f"Symbol {start_from_symbol} not found, starting from the beginning")
                     filtered_symbols = all_symbols
             else:
                 filtered_symbols = all_symbols
@@ -220,7 +224,7 @@ async def main():
             # Limit the number of symbols if max_symbols is specified
             if max_symbols is not None:
                 filtered_symbols = filtered_symbols[:max_symbols]
-                print(f"Processing a batch of {len(filtered_symbols)} symbols")
+                logger.info(f"Processing a batch of {len(filtered_symbols)} symbols")
 
             # Show progress information
             if start_from_symbol and filtered_symbols:
@@ -229,9 +233,9 @@ async def main():
                     current_index = all_symbols.index(filtered_symbols[0])
                     remaining = total_symbols - current_index
                     progress_pct = (current_index / total_symbols) * 100
-                    print(f"Progress: {current_index}/{total_symbols} symbols processed ({progress_pct:.2f}%), {remaining} symbols remaining")
+                    logger.info(f"Progress: {current_index}/{total_symbols} symbols processed ({progress_pct:.2f}%), {remaining} symbols remaining")
                 except ValueError:
-                    print("Could not calculate progress information")
+                    logger.warning("Could not calculate progress information")
 
             # Process each symbol from API
             api_tasks = [
@@ -261,7 +265,7 @@ async def main():
                         filtered_missing = []
 
                 if filtered_missing:
-                    print(f"Processing {len(filtered_missing)} missing symbols for {interval}...")
+                    logger.info(f"Processing {len(filtered_missing)} missing symbols for {interval}...")
                     missing_tasks = [
                         process_symbol(sym, downloader, interval_not_found, sem, interval)
                         for sym in filtered_missing
@@ -282,7 +286,7 @@ async def main():
                 last_symbol = filtered_symbols[-1]
                 with open(f"./data/intraday/last_processed_symbol_{interval}.txt", "w") as f:
                     f.write(last_symbol)
-                print(f"Last processed symbol: {last_symbol}, saved to ./data/intraday/last_processed_symbol_{interval}.txt")
+                logger.info(f"Last processed symbol: {last_symbol}, saved to ./data/intraday/last_processed_symbol_{interval}.txt")
 
             # Reset start_from_symbol for the next interval
             # This is important because we want to resume from the correct symbol for each interval
@@ -294,9 +298,9 @@ async def main():
                     f.write(sym + "\n")
 
             not_found.extend(interval_not_found)
-            print(f"Missing symbols for {interval} written to ./data/intraday/missing_symbols_{interval}.txt")
+            logger.info(f"Missing symbols for {interval} written to ./data/intraday/missing_symbols_{interval}.txt")
 
-    print("Intraday data ingestion complete.")
+    logger.info("Intraday data ingestion complete.")
 
 
 if __name__ == "__main__":

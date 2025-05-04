@@ -7,6 +7,10 @@ import pandas as pd
 from enum import Enum
 
 from data_manager.alpha_vantage import AsyncAlphaVantageDownloader
+from logger import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
 
 
 class DataReader:
@@ -21,7 +25,7 @@ class DataReader:
         try:
             return pd.read_pickle(os.path.join(self.DATA_LOCATION, symbol + ".pkl"))
         except FileNotFoundError:
-            print(f"File {symbol} not found")
+            logger.warning(f"File {symbol} not found")
             return None
 
     def _save_data(self, symbol, symbol_data):
@@ -155,7 +159,7 @@ if __name__ == '__main__':
         # data = await reader.get_data(symbol="MSFT", start_date=date(2024, 3, 1), end_date=date(2024, 3, 1))
         data = await reader.get_value(symbol="MSFT", for_date=date(2024, 4, 29), for_field=FieldName.CLOSE)
 
-        print(type(data))
-        print(data)
+        logger.debug(f"Data type: {type(data)}")
+        logger.debug(f"Data value: {data}")
 
     asyncio.run(main())

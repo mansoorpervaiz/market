@@ -7,6 +7,10 @@ import ssl
 
 from data_manager.alpha_vantage import AsyncAlphaVantageDownloader
 from data_manager.symbol_manager import SymbolManager
+from logger import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
 
 async def process_symbol(symbol: str,
                          downloader: AsyncAlphaVantageDownloader,
@@ -42,10 +46,10 @@ async def main():
     missing_symbols_path = "./data/daily/missing_symbols.txt"
     missing_symbols = []
     if os.path.exists(missing_symbols_path):
-        print(f"Found missing symbols file at {missing_symbols_path}")
+        logger.info(f"Found missing symbols file at {missing_symbols_path}")
         with open(missing_symbols_path, "r") as f:
             missing_symbols = [line.strip() for line in f if line.strip()]
-        print(f"Read {len(missing_symbols)} missing symbols")
+        logger.info(f"Read {len(missing_symbols)} missing symbols")
 
     # Create a custom SSL context that doesn't verify certificates
     # Note: Disabling SSL verification is not recommended for production use
@@ -61,15 +65,15 @@ async def main():
         sm = SymbolManager(downloader=downloader)
 
         # Load symbols for Russell 1000 constituents from Wikipedia
-        print("Fetching Russell 1000 symbols from Wikipedia...")
+        logger.info("Fetching Russell 1000 symbols from Wikipedia...")
         sm.load_russell_1000_symbols()
 
         all_symbols = sm.get_symbols_space_separated()
-        print(f"Fetched {len(all_symbols)} symbols from Russell 1000 Index")
+        logger.info(f"Fetched {len(all_symbols)} symbols from Russell 1000 Index")
 
         # Save symbols to a text file in the data folder
         symbols_file = sm.save_symbols_to_file("symbols.txt")
-        print(f"Symbols saved to {symbols_file}")
+        logger.info(f"Symbols saved to {symbols_file}")
 
         # Process each symbol from API
         api_tasks = [
@@ -79,7 +83,7 @@ async def main():
 
         # Process missing symbols if any
         if missing_symbols:
-            print(f"Processing {len(missing_symbols)} missing symbols...")
+            logger.info(f"Processing {len(missing_symbols)} missing symbols...")
             missing_tasks = [
                 process_symbol(sym, downloader, not_found, sem)
                 for sym in missing_symbols
@@ -96,7 +100,7 @@ async def main():
         for sym in not_found:
             f.write(sym + "\n")
 
-    print("Missing symbols written to ./data/daily/missing_symbols.txt")
+    logger.info("Missing symbols written to ./data/daily/missing_symbols.txt")
 
 
 
