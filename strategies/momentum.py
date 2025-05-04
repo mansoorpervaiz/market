@@ -147,9 +147,10 @@ class RSIStrategy(MomentumStrategy):
     """
     Relative Strength Index (RSI) strategy.
     Buy when RSI crosses above 30 (oversold), sell when it crosses below 70 (overbought).
+    With trend filter option: only take RSI signals when price > 200-day moving average.
     """
 
-    def __init__(self, data_reader, window=14, oversold=30, overbought=70):
+    def __init__(self, data_reader, window=14, oversold=30, overbought=70, use_trend_filter=True, ma_period=200):
         """
         Initialize the RSI strategy.
 
@@ -158,17 +159,28 @@ class RSIStrategy(MomentumStrategy):
             window (int): Window for RSI calculation.
             oversold (int): Threshold for oversold condition.
             overbought (int): Threshold for overbought condition.
+            use_trend_filter (bool): Whether to use trend filter (price > MA).
+            ma_period (int): Period for the moving average used in trend filter.
         """
         super().__init__(data_reader)
         self.window = window
         self.oversold = oversold
         self.overbought = overbought
+        self.use_trend_filter = use_trend_filter
+        self.ma_period = ma_period
 
     async def generate_signals(self, symbol, start_date, end_date):
         """Generate buy/sell signals based on RSI."""
-        # Get data for a longer period to calculate RSI
+        # Get data for a longer period to calculate RSI and MA if needed
         from datetime import timedelta
-        extended_start_date = start_date - timedelta(days=self.window * 3)
+
+        # Determine how far back we need to go for calculations
+        lookback_days = self.window * 3
+        if self.use_trend_filter:
+            # Need more historical data for the moving average calculation
+            lookback_days = max(lookback_days, self.ma_period * 2)
+
+        extended_start_date = start_date - timedelta(days=lookback_days)
 
         # Get price data
         df = await self.data_reader.get_data(symbol, extended_start_date, end_date)
@@ -189,13 +201,22 @@ class RSIStrategy(MomentumStrategy):
         df.loc[:, 'rs'] = df['avg_gain'] / df['avg_loss']
         df.loc[:, 'rsi'] = 100 - (100 / (1 + df['rs']))
 
+        # Calculate moving average for trend filter if enabled
+        if self.use_trend_filter:
+            df.loc[:, 'ma'] = df['close'].rolling(window=self.ma_period).mean()
+
         # Generate signals
         df.loc[:, 'signal'] = Signal.HOLD.value
 
         # Buy when RSI crosses above oversold threshold
-        df.loc[(df['rsi'] > self.oversold) & 
-               (df['rsi'].shift(1) <= self.oversold), 
-               'signal'] = Signal.BUY.value
+        buy_condition = (df['rsi'] > self.oversold) & (df['rsi'].shift(1) <= self.oversold)
+
+        # Add trend filter condition if enabled
+        if self.use_trend_filter:
+            # Only buy when price is above the moving average
+            buy_condition = buy_condition & (df['close'] > df['ma'])
+
+        df.loc[buy_condition, 'signal'] = Signal.BUY.value
 
         # Sell when RSI crosses below overbought threshold
         df.loc[(df['rsi'] < self.overbought) & 
