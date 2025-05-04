@@ -1,13 +1,15 @@
 import aiohttp
 import asyncio
 import csv
+import os
 import ssl
 import time
 from io import StringIO
 
 class AsyncAlphaVantageDownloader:
     BASE_URL = "https://www.alphavantage.co/query"
-    API_KEY = "C09R44C5Y37M2C8W"     # replace with your key
+    # Get API key from environment variable or use default value
+    API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY", "C09R44C5Y37M2C8W")
     RETRIES = 3
     # Rate limiting: 75 requests per minute
     RATE_LIMIT = 75
@@ -18,14 +20,17 @@ class AsyncAlphaVantageDownloader:
     _request_timestamps = []
     _rate_limit_lock = asyncio.Lock()
 
-    def __init__(self, session: aiohttp.ClientSession = None):
+    def __init__(self, session: aiohttp.ClientSession = None, verify_ssl: bool = True):
         self._own_session = session is None
         self.session = session
+        self.verify_ssl = verify_ssl
 
-        # Create a custom SSL context that doesn't verify certificates
+        # Create SSL context
         self.ssl_context = ssl.create_default_context()
-        self.ssl_context.check_hostname = False
-        self.ssl_context.verify_mode = ssl.CERT_NONE
+        if not verify_ssl:
+            # Disable SSL verification if requested
+            self.ssl_context.check_hostname = False
+            self.ssl_context.verify_mode = ssl.CERT_NONE
 
     async def _acquire_rate_limit(self):
         """

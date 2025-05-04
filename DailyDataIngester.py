@@ -48,12 +48,14 @@ async def main():
         print(f"Read {len(missing_symbols)} missing symbols")
 
     # Create a custom SSL context that doesn't verify certificates
+    # Note: Disabling SSL verification is not recommended for production use
     ssl_context = ssl.create_default_context()
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
 
     async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ssl_context)) as session:
-        downloader = AsyncAlphaVantageDownloader(session)
+        # Pass verify_ssl=False to match the SSL context configuration
+        downloader = AsyncAlphaVantageDownloader(session, verify_ssl=False)
 
         # Initialize SymbolManager with the downloader
         sm = SymbolManager(downloader=downloader)
