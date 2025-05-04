@@ -11,6 +11,7 @@
 import aiohttp
 import asyncio
 import csv
+import json
 import os
 import ssl
 import time
@@ -30,7 +31,7 @@ class AsyncAlphaVantageDownloader:
     _request_timestamps = []
     _rate_limit_lock = asyncio.Lock()
 
-    def __init__(self, session: aiohttp.ClientSession = None, verify_ssl: bool = True):
+    def __init__(self, session: aiohttp.ClientSession = None, verify_ssl: bool = False):
         self._own_session = session is None
         self.session = session
         self.verify_ssl = verify_ssl
@@ -99,6 +100,13 @@ class AsyncAlphaVantageDownloader:
                 async with session.get(self.BASE_URL, params=params) as resp:
                     resp.raise_for_status()
                     data = await resp.json()
+
+                    # Check for premium endpoint message
+                    if 'Information' in data and 'premium' in data['Information'].lower():
+                        error_msg = f"Premium endpoint error for {params['symbol']}: {data['Information']}"
+                        print(error_msg)
+                        raise ValueError(error_msg)  # Raise exception to stop execution
+
                     # Check if response is empty
                     if not data:
                         # Empty response, likely due to rate limiting
@@ -154,10 +162,23 @@ class AsyncAlphaVantageDownloader:
 
                 async with session.get(self.BASE_URL, params=params) as resp:
                     resp.raise_for_status()
-                    csv_text = await resp.text()
+                    response_text = await resp.text()
+
+                    # Check if response might be JSON (premium endpoint message)
+                    if response_text.strip().startswith('{'):
+                        try:
+                            data = json.loads(response_text)
+                            # Check for premium endpoint message
+                            if 'Information' in data and 'premium' in data['Information'].lower():
+                                error_msg = f"Premium endpoint error: {data['Information']}"
+                                print(error_msg)
+                                raise ValueError(error_msg)  # Raise exception to stop execution
+                        except json.JSONDecodeError:
+                            # Not valid JSON, continue with CSV parsing
+                            pass
 
                     # Parse CSV data
-                    reader = csv.DictReader(StringIO(csv_text))
+                    reader = csv.DictReader(StringIO(response_text))
                     symbols = []
 
                     for row in reader:
