@@ -49,7 +49,7 @@ The project has been updated to fetch stock symbols from the Russell 1000 Index 
    - Extracts the stock symbols from the table
    - Filters out non-alphanumeric symbols
 
-2. The data ingesters (`DailyDataIngester.py` and `IntradayDataIngester.py`) use this method to load symbols.
+2. The data ingesters (`ingesters/DailyDataIngester.py` and `ingesters/IntradayDataIngester.py`) use this method to load symbols.
 
 ### Testing Russell 1000 Integration
 
@@ -112,13 +112,13 @@ The project provides two main data ingesters:
 
 1. **Daily Data Ingester**:
    ```bash
-   python DailyDataIngester.py
+   python ingesters/DailyDataIngester.py
    ```
    This script fetches daily stock data for Russell 1000 constituents.
 
 2. **Intraday Data Ingester**:
    ```bash
-   python IntradayDataIngester.py
+   python ingesters/IntradayDataIngester.py
    ```
    This script fetches intraday stock data for Russell 1000 constituents.
 

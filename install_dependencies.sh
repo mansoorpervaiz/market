@@ -18,5 +18,5 @@ pip install lxml>=4.9.3
 
 echo "Dependencies installation complete!"
 echo "You can now run the data ingesters:"
-echo "python DailyDataIngester.py"
-echo "python IntradayDataIngester.py"
+echo "python ingesters/DailyDataIngester.py"
+echo "python ingesters/IntradayDataIngester.py"
