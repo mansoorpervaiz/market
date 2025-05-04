@@ -1,6 +1,8 @@
 import pandas as pd
 import os
 import asyncio
+import ssl
+import urllib.request
 from .alpha_vantage import AsyncAlphaVantageDownloader
 
 
@@ -43,8 +45,29 @@ class SymbolManager:
         # URL of the Wikipedia page containing the Russell 1000 constituents
         url = 'https://en.wikipedia.org/wiki/Russell_1000_Index'
 
-        # Read tables from the Wikipedia page
-        tables = pd.read_html(url)
+        # Create a custom SSL context that doesn't verify certificates
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+
+        # Save the original urlopen function
+        original_urlopen = urllib.request.urlopen
+
+        # Define a new urlopen function that uses our SSL context
+        def patched_urlopen(*args, **kwargs):
+            if 'context' not in kwargs:
+                kwargs['context'] = ssl_context
+            return original_urlopen(*args, **kwargs)
+
+        # Monkey-patch the urlopen function
+        urllib.request.urlopen = patched_urlopen
+
+        try:
+            # Read tables from the Wikipedia page
+            tables = pd.read_html(url)
+        finally:
+            # Restore the original urlopen function
+            urllib.request.urlopen = original_urlopen
 
         # Find the table with the constituents
         constituents_df = None
