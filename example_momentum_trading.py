@@ -15,6 +15,9 @@ import matplotlib.pyplot as plt
 import os
 from datetime import date, timedelta
 from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor
+import itertools
+
 
 from data_manager.data_reader import DataReader, FieldName
 from strategies.momentum import (
@@ -53,12 +56,13 @@ async def run_single_strategy_example(input_file=None):
     data_reader = DataReader()
 
     # Create a strategy
-    rsi_strategy = RSIStrategy(
-        data_reader=data_reader,
-        window=14,
-        oversold=30,
-        overbought=70
-    )
+    # rsi_strategy = RSIStrategy(
+    #     data_reader=data_reader,
+    #     window=14,
+    #     oversold=30,
+    #     overbought=70
+    # )
+    moving_average_cross_over = MovingAverageCrossoverStrategy(data_reader=data_reader, short_window=20, long_window=50)
 
     # Initialize the backtester
     backtester = BackTester(
@@ -95,7 +99,7 @@ async def run_single_strategy_example(input_file=None):
         try:
             print(f"Processing {symbol}...")
             report = await backtester.backtest(
-                strategy=rsi_strategy,
+                strategy= moving_average_cross_over, #rsi_strategy,
                 symbol=symbol,
                 start_date=start_date,
                 end_date=end_date
@@ -362,13 +366,72 @@ async def compare_to_benchmark_example():
     print(f"Completed benchmark comparison for {len(all_results)} tickers.")
     return all_results
 
+def evaluate_rsi_combo(symbol, window, oversold, overbought, ma_period, start_date, end_date):
+    try:
+        data_reader = DataReader()
+        strategy = RSIStrategy(
+            data_reader=data_reader,
+            window=window,
+            oversold=oversold,
+            overbought=overbought,
+            use_trend_filter=True,
+            ma_period=ma_period
+        )
+        backtester = BackTester(data_reader=data_reader, initial_capital=10000, transaction_cost_pct=0.1)
+        report = asyncio.run(backtester.backtest(strategy, symbol, start_date, end_date))
 
+        return {
+            "Symbol": symbol,
+            "Window": window,
+            "Oversold": oversold,
+            "Overbought": overbought,
+            "MA": ma_period,
+            "Sharpe": report.sharpe_ratio,
+            "Return": report.total_return,
+            "Drawdown": report.max_drawdown,
+            "Trades": len(report.trades)
+        }
+    except Exception as e:
+        return {
+            "Symbol": symbol,
+            "Error": str(e),
+            "Window": window,
+            "Oversold": oversold,
+            "Overbought": overbought,
+            "MA": ma_period
+        }
+
+
+def evaluate_wrapper(args):
+    return evaluate_rsi_combo(*args)
+
+
+def run_rsi_optimization():
+    start_date = date(2014, 1, 1)
+    end_date = date(2024, 12, 31)
+
+    tickers = get_available_tickers()[:100]  # You can remove slicing to run on all
+
+    param_grid = list(itertools.product([5, 10, 14], [25, 30, 35], [65, 70, 75], [100, 150, 200]))
+    tasks = [(symbol, w, os, ob, ma, start_date, end_date)
+             for symbol in tickers
+             for (w, os, ob, ma) in param_grid]
+
+    print(f"Running {len(tasks)} RSI grid tests across {len(tickers)} symbols...")
+
+    with ProcessPoolExecutor() as executor:
+        results = list(executor.map(evaluate_wrapper, tasks))
+
+    df = pd.DataFrame(results)
+    df.to_csv("rsi_grid_optimization_results.csv", index=False)
+    print("Results saved to rsi_grid_optimization_results.csv")
 async def main():
     """Run all examples."""
     # Run the single strategy example with S&P 500 tickers
     sp500_file = os.path.join("data", "SP500.csv")
     print(f"\nRunning single strategy example with S&P 500 tickers from {sp500_file}")
     await run_single_strategy_example(input_file=sp500_file)
+
 
     # Uncomment the following line to run with all available tickers
     # await run_single_strategy_example()

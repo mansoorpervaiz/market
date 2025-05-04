@@ -185,6 +185,10 @@ class RSIStrategy(MomentumStrategy):
         # Get price data
         df = await self.data_reader.get_data(symbol, extended_start_date, end_date)
 
+        # Check for empty dataframe
+        if df.empty:
+            return pd.DataFrame(index=pd.date_range(start_date, end_date), columns=['signal']).fillna(Signal.HOLD.value)
+
         # Create a copy of the DataFrame to avoid SettingWithCopyWarning
         df = df.copy()
 
@@ -193,13 +197,17 @@ class RSIStrategy(MomentumStrategy):
         df.loc[:, 'gain'] = df['price_change'].clip(lower=0)
         df.loc[:, 'loss'] = -df['price_change'].clip(upper=0)
 
-        # Calculate average gain and loss
-        df.loc[:, 'avg_gain'] = df['gain'].rolling(window=self.window).mean()
-        df.loc[:, 'avg_loss'] = df['loss'].rolling(window=self.window).mean()
+        # Calculate average gain and loss using Wilder's smoothing
+        df.loc[:, 'avg_gain'] = df['gain'].ewm(alpha=1/self.window, min_periods=self.window).mean()
+        df.loc[:, 'avg_loss'] = df['loss'].ewm(alpha=1/self.window, min_periods=self.window).mean()
 
         # Calculate RS and RSI
         df.loc[:, 'rs'] = df['avg_gain'] / df['avg_loss']
         df.loc[:, 'rsi'] = 100 - (100 / (1 + df['rs']))
+
+        # Check for NaN-only RSI output
+        if df['rsi'].isna().all():
+            return pd.DataFrame(index=pd.date_range(start_date, end_date), columns=['signal']).fillna(Signal.HOLD.value)
 
         # Calculate moving average for trend filter if enabled
         if self.use_trend_filter:
@@ -219,10 +227,13 @@ class RSIStrategy(MomentumStrategy):
         df.loc[buy_condition, 'signal'] = Signal.BUY.value
 
         # Sell when RSI crosses below overbought threshold
-        df.loc[(df['rsi'] < self.overbought) & 
-               (df['rsi'].shift(1) >= self.overbought), 
-               'signal'] = Signal.SELL.value
+        sell_condition = (df['rsi'] < self.overbought) & (df['rsi'].shift(1) >= self.overbought)
+        df.loc[sell_condition, 'signal'] = Signal.SELL.value
 
-        # Filter to the requested date range
-        result = df.loc[df.index >= start_date, ['signal']]
+        # Filter to the requested date range and include debug columns
+        columns_to_return = ['signal', 'rsi']
+        if self.use_trend_filter and 'ma' in df.columns:
+            columns_to_return.append('ma')
+
+        result = df.loc[df.index >= start_date, columns_to_return]
         return result
