@@ -32,3 +32,17 @@ last one that didnt work
 https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol={symbol}&outputsize={output_size}&apikey={self.api_key}
 https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol=IBM&outputsize=full&apikey=C09R44C5Y37M2C8W
 https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol=FOXXW&outputsize=full&apikey=C09R44C5Y37M2C8W
+
+
+next changes
+for RSI
+Add a Trend Filter: e.g., only take RSI signals when price > 200-day moving average.
+
+Use Stop-Losses & Position Sizing: To cut drawdowns drastically.
+
+Optimize RSI thresholds and lookback window.
+
+Restrict to momentum-friendly tickers — use ranking filters before applying RSI logic.
+
+Consider ensemble signals — combine RSI with moving averages, volume, or price action rules.
+
