@@ -44,13 +44,16 @@ def get_available_tickers():
     return tickers
 
 
-async def run_single_strategy_example(input_file=None):
+async def run_single_strategy_example(input_file=None, strategy_name="MovingAverageCrossover"):
     """
     Run a single strategy backtest example.
 
     Args:
         input_file (str, optional): Path to a CSV file containing tickers to process.
                                    If not provided, all available tickers will be used.
+        strategy_name (str, optional): Name of the strategy to use. 
+                                      Options: "MovingAverageCrossover", "RSI", "RateOfChange".
+                                      Default is "MovingAverageCrossover".
     """
     # Create output directories if they don't exist
     ticker_plots_dir = Path("output/ticker-plots")
@@ -62,14 +65,29 @@ async def run_single_strategy_example(input_file=None):
     # Initialize the data reader
     data_reader = DataReader()
 
-    # Create a strategy
-    # rsi_strategy = RSIStrategy(
-    #     data_reader=data_reader,
-    #     window=14,
-    #     oversold=30,
-    #     overbought=70
-    # )
-    moving_average_cross_over = MovingAverageCrossoverStrategy(data_reader=data_reader, short_window=20, long_window=50)
+    # Create a strategy based on the strategy_name parameter
+    if strategy_name == "RSI":
+        strategy = RSIStrategy(
+            data_reader=data_reader,
+            window=14,
+            oversold=30,
+            overbought=70,
+            use_trend_filter=True,
+            ma_period=200
+        )
+    elif strategy_name == "RateOfChange":
+        strategy = RateOfChangeStrategy(
+            data_reader=data_reader,
+            n_days=14,
+            threshold_pct=5,
+            sell_threshold_pct=-3
+        )
+    else:  # Default to MovingAverageCrossover
+        strategy = MovingAverageCrossoverStrategy(
+            data_reader=data_reader,
+            short_window=20,
+            long_window=50
+        )
 
     # Initialize the backtester
     backtester = BackTester(
@@ -96,7 +114,7 @@ async def run_single_strategy_example(input_file=None):
         # Get all available tickers
         tickers = get_available_tickers()
 
-    print(f"Running RSI strategy backtest for {len(tickers)} tickers from {start_date} to {end_date}...")
+    print(f"Running {strategy_name} strategy backtest for {len(tickers)} tickers from {start_date} to {end_date}...")
 
     # Dictionary to store reports for each ticker
     reports = {}
@@ -106,7 +124,7 @@ async def run_single_strategy_example(input_file=None):
         try:
             print(f"Processing {symbol}...")
             report = await backtester.backtest(
-                strategy= moving_average_cross_over, #rsi_strategy,
+                strategy=strategy,
                 symbol=symbol,
                 start_date=start_date,
                 end_date=end_date
@@ -123,7 +141,7 @@ async def run_single_strategy_example(input_file=None):
             # Plot the equity curve
             plt.figure(figsize=(12, 6))
             report.plot_equity_curve()
-            plt.savefig(f"output/ticker-plots/{symbol}_rsi_strategy.png")
+            plt.savefig(f"output/ticker-plots/{symbol}_{strategy_name.lower()}_strategy.png")
             plt.close()
 
         except Exception as e:
@@ -437,11 +455,42 @@ async def main():
     # Run the single strategy example with S&P 500 tickers
     sp500_file = os.path.join("data", "SP500.csv")
     print(f"\nRunning single strategy example with S&P 500 tickers from {sp500_file}")
-    await run_single_strategy_example(input_file=sp500_file)
+    # Uncomment the following lines to run with different strategies or all available tickers
+
+    # this is not a tradable strategy in its current form.
+    # Even though MA crossover systems are popular, they:
+    # Work better on commodities or FX, not equities.
+    # Need trend filters (ADX, slope filters, volume filters).
+    # Often benefit from volatility or momentum confirmation.
+    #
+    # MovingAverageCrossover doesnt work
+    # await run_single_strategy_example(input_file=sp500_file, strategy_name="MovingAverageCrossover")
+    #
+    #
+    # RSI doesn't work
+    # 1. Only 41 out of 81000 tests were “good”
+    # That’s 0.05% success rate — effectively noise.
+    # Most configurations had Sharpe < 0, meaning the strategy underperformed risk-free returns.
+    #
+    # 2. Returns were driven by a few lucky trades
+    # Even the best configurations often had fewer than 20 trades in 10 years.
+    # This isn't repeatable — it’s statistically flimsy.
+    #
+    # 3. Highly parameter-sensitive
+    # Tiny changes in RSI window or thresholds led to wildly different outcomes.
+    # This is a sign of overfitting, not robust alpha.
+    #
+    # 4. Drawdowns remain high
+    # 20–30% drawdowns for modest returns are unattractive for short-term trading.
+    # You’d get better risk-adjusted returns just holding SPY.
+    #
+    # RSI doesnt work
+    # await run_single_strategy_example(input_file=sp500_file, strategy_name="RSI")
 
 
-    # Uncomment the following line to run with all available tickers
-    # await run_single_strategy_example()
+
+    await run_single_strategy_example(input_file=sp500_file, strategy_name="RateOfChange")
+    # await run_single_strategy_example(strategy_name="MovingAverageCrossover")
 
     # Run the strategy comparison example
     # await compare_strategies_example()
