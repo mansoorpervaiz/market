@@ -27,6 +27,7 @@ from strategies.momentum import (
     MomentumStrategy,
     RateOfChangeStrategy,
     MovingAverageCrossoverStrategy,
+    BreakoutStrategy,
     RSIStrategy
 )
 
@@ -126,6 +127,77 @@ class TestMomentumStrategies(unittest.TestCase):
 
         # There should be at least one buy signal after the crossover
         self.assertTrue((signals['signal'] == Signal.BUY.value).any())
+
+    def test_momentum_strategy_base_class(self):
+        """Test the MomentumStrategy base class."""
+        # Create an instance of the base class
+        strategy = MomentumStrategy(data_reader=self.data_reader)
+
+        # The generate_signals method should raise NotImplementedError
+        start_date = date(2023, 1, 10)
+        end_date = date(2023, 1, 30)
+
+        with self.assertRaises(NotImplementedError):
+            asyncio.run(strategy.generate_signals(
+                symbol='AAPL',
+                start_date=start_date,
+                end_date=end_date
+            ))
+
+    def test_breakout_strategy(self):
+        """Test the Breakout strategy."""
+        # Create data with clear breakout patterns
+        dates = pd.date_range(start='2023-01-01', end='2023-01-31', freq='D')
+
+        # Create price data with a clear breakout pattern
+        prices = np.concatenate([
+            np.linspace(100, 105, 10),  # Stable prices
+            np.linspace(105, 120, 10),  # Breakout to the upside
+            np.linspace(120, 110, 11)   # Pullback
+        ])
+
+        highs = prices + 2
+        lows = prices - 2
+
+        breakout_data = pd.DataFrame({
+            'open': prices,
+            'high': highs,
+            'low': lows,
+            'close': prices,
+            'adjusted_close': prices,
+            'volume': np.random.randint(1000, 10000, len(dates))
+        }, index=dates.date)
+
+        # Configure the mock data_reader to return the breakout data directly
+        async def mock_get_data(*args, **kwargs):
+            return breakout_data
+
+        self.data_reader.get_data = mock_get_data
+
+        # Create the strategy
+        strategy = BreakoutStrategy(
+            data_reader=self.data_reader,
+            high_period=5,  # Shorter period for testing
+            low_period=3    # Shorter period for testing
+        )
+
+        # Run the strategy
+        start_date = date(2023, 1, 10)
+        end_date = date(2023, 1, 30)
+        signals = asyncio.run(strategy.generate_signals(
+            symbol='AAPL',
+            start_date=start_date,
+            end_date=end_date
+        ))
+
+        # Verify the results
+        self.assertIsInstance(signals, pd.DataFrame)
+        self.assertIn('signal', signals.columns)
+        self.assertTrue((signals['signal'].isin([Signal.BUY.value, Signal.SELL.value, Signal.HOLD.value])).all())
+
+        # Verify that high_20d and low_10d columns are included in the result
+        self.assertIn('high_20d', signals.columns)
+        self.assertIn('low_10d', signals.columns)
 
     def test_rsi_strategy(self):
         """Test the RSI strategy."""
