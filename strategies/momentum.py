@@ -145,30 +145,53 @@ class MovingAverageCrossoverStrategy(MomentumStrategy):
 
 class BreakoutStrategy(MomentumStrategy):
     """
-    Breakout strategy.
-    Buy when price breaks 20-day high, exit (sell) on 10-day low.
+    Enhanced Breakout strategy.
+    Buy when price breaks 20-day high with volatility filter, volume confirmation, and trend filter.
+    Exit using tighter stop-loss or trailing exit logic instead of waiting for 10-day low.
     """
 
-    def __init__(self, data_reader, high_period=20, low_period=10):
+    def __init__(self, data_reader, high_period=20, low_period=10, 
+                 use_volatility_filter=True, atr_period=14, atr_threshold=1.5,
+                 use_volume_confirmation=True, volume_threshold=1.5,
+                 use_trailing_stop=True, trailing_stop_pct=2.0,
+                 use_trend_filter=True, ma_period=200):
         """
-        Initialize the Breakout strategy.
+        Initialize the enhanced Breakout strategy.
 
         Args:
             data_reader: An instance of DataReader.
             high_period (int): Period for calculating the high price (default: 20 days).
             low_period (int): Period for calculating the low price (default: 10 days).
+            use_volatility_filter (bool): Whether to use ATR volatility filter.
+            atr_period (int): Period for ATR calculation.
+            atr_threshold (float): Minimum ATR multiple to consider market volatile enough.
+            use_volume_confirmation (bool): Whether to require volume confirmation.
+            volume_threshold (float): Volume multiple above average to confirm breakout.
+            use_trailing_stop (bool): Whether to use trailing stop for exits.
+            trailing_stop_pct (float): Percentage below recent high for trailing stop.
+            use_trend_filter (bool): Whether to only trade in uptrends.
+            ma_period (int): Period for moving average trend filter.
         """
         super().__init__(data_reader)
         self.high_period = high_period
         self.low_period = low_period
+        self.use_volatility_filter = use_volatility_filter
+        self.atr_period = atr_period
+        self.atr_threshold = atr_threshold
+        self.use_volume_confirmation = use_volume_confirmation
+        self.volume_threshold = volume_threshold
+        self.use_trailing_stop = use_trailing_stop
+        self.trailing_stop_pct = trailing_stop_pct
+        self.use_trend_filter = use_trend_filter
+        self.ma_period = ma_period
 
     async def generate_signals(self, symbol, start_date, end_date):
-        """Generate buy/sell signals based on price breakouts."""
+        """Generate buy/sell signals based on price breakouts with enhanced filters."""
         # Get data for a longer period to calculate highs and lows
         from datetime import timedelta
 
         # Need more historical data for the rolling calculations
-        lookback_days = max(self.high_period, self.low_period) * 2
+        lookback_days = max(self.high_period, self.low_period, self.atr_period, self.ma_period) * 2
         extended_start_date = start_date - timedelta(days=lookback_days)
 
         # Get price data
@@ -185,19 +208,92 @@ class BreakoutStrategy(MomentumStrategy):
         df.loc[:, 'high_20d'] = df['high'].rolling(window=self.high_period).max()
         df.loc[:, 'low_10d'] = df['low'].rolling(window=self.low_period).min()
 
+        # Calculate ATR for volatility filter
+        if self.use_volatility_filter:
+            df.loc[:, 'tr'] = np.maximum(
+                df['high'] - df['low'],
+                np.maximum(
+                    abs(df['high'] - df['close'].shift(1)),
+                    abs(df['low'] - df['close'].shift(1))
+                )
+            )
+            df.loc[:, 'atr'] = df['tr'].rolling(window=self.atr_period).mean()
+            df.loc[:, 'atr_ratio'] = df['atr'] / df['close'] * 100  # ATR as percentage of price
+
+        # Calculate volume average for confirmation
+        if self.use_volume_confirmation:
+            df.loc[:, 'volume_avg'] = df['volume'].rolling(window=20).mean()
+            df.loc[:, 'volume_ratio'] = df['volume'] / df['volume_avg']
+
+        # Calculate moving average for trend filter
+        if self.use_trend_filter:
+            df.loc[:, 'ma_200d'] = df['close'].rolling(window=self.ma_period).mean()
+
+        # Initialize trailing stop columns
+        if self.use_trailing_stop:
+            df.loc[:, 'highest_since_buy'] = np.nan
+            df.loc[:, 'trailing_stop'] = np.nan
+            df.loc[:, 'in_position'] = False
+
         # Generate signals
         df.loc[:, 'signal'] = Signal.HOLD.value
 
-        # Buy when price breaks above the 20-day high (comparing current close to previous day's 20-day high)
+        # Buy condition: price breaks above the high_period high
         buy_condition = (df['close'] > df['high_20d'].shift(1))
+
+        # Apply volatility filter
+        if self.use_volatility_filter:
+            buy_condition = buy_condition & (df['atr_ratio'] > self.atr_threshold)
+
+        # Apply volume confirmation
+        if self.use_volume_confirmation:
+            buy_condition = buy_condition & (df['volume_ratio'] > self.volume_threshold)
+
+        # Apply trend filter
+        if self.use_trend_filter:
+            buy_condition = buy_condition & (df['close'] > df['ma_200d'])
+
+        # Apply buy signals
         df.loc[buy_condition, 'signal'] = Signal.BUY.value
 
-        # Sell when price breaks below the 10-day low (comparing current close to previous day's 10-day low)
-        sell_condition = (df['close'] < df['low_10d'].shift(1))
-        df.loc[sell_condition, 'signal'] = Signal.SELL.value
+        # Process trailing stops
+        if self.use_trailing_stop:
+            # Track positions and update trailing stops
+            for i in range(1, len(df)):
+                if df.iloc[i-1]['signal'] == Signal.BUY.value:
+                    df.iloc[i, df.columns.get_loc('in_position')] = True
+                    df.iloc[i, df.columns.get_loc('highest_since_buy')] = df.iloc[i]['close']
+                    df.iloc[i, df.columns.get_loc('trailing_stop')] = df.iloc[i]['close'] * (1 - self.trailing_stop_pct/100)
+                elif df.iloc[i-1]['in_position']:
+                    df.iloc[i, df.columns.get_loc('in_position')] = True
+                    df.iloc[i, df.columns.get_loc('highest_since_buy')] = max(
+                        df.iloc[i-1]['highest_since_buy'], df.iloc[i]['close']
+                    )
+                    df.iloc[i, df.columns.get_loc('trailing_stop')] = df.iloc[i]['highest_since_buy'] * (1 - self.trailing_stop_pct/100)
+
+            # Sell when price drops below trailing stop
+            trailing_stop_condition = df['in_position'] & (df['close'] < df['trailing_stop'])
+            df.loc[trailing_stop_condition, 'signal'] = Signal.SELL.value
+
+            # Reset position after sell
+            df.loc[df['signal'] == Signal.SELL.value, 'in_position'] = False
+        else:
+            # Traditional sell when price breaks below the low_period low
+            sell_condition = (df['close'] < df['low_10d'].shift(1))
+            df.loc[sell_condition, 'signal'] = Signal.SELL.value
 
         # Filter to the requested date range and include debug columns
         columns_to_return = ['signal', 'high_20d', 'low_10d']
+
+        # Add debug columns based on enabled features
+        if self.use_volatility_filter:
+            columns_to_return.extend(['atr', 'atr_ratio'])
+        if self.use_volume_confirmation:
+            columns_to_return.extend(['volume_ratio'])
+        if self.use_trend_filter:
+            columns_to_return.append('ma_200d')
+        if self.use_trailing_stop:
+            columns_to_return.extend(['highest_since_buy', 'trailing_stop', 'in_position'])
 
         result = df.loc[df.index >= start_date, columns_to_return]
         return result

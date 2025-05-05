@@ -457,16 +457,15 @@ async def main():
     print(f"\nRunning single strategy example with S&P 500 tickers from {sp500_file}")
     # Uncomment the following lines to run with different strategies or all available tickers
 
-    # this is not a tradable strategy in its current form.
+    # MovingAverageCrossover is not a tradable strategy in its current form.
     # Even though MA crossover systems are popular, they:
     # Work better on commodities or FX, not equities.
     # Need trend filters (ADX, slope filters, volume filters).
     # Often benefit from volatility or momentum confirmation.
     #
-    # MovingAverageCrossover doesnt work
     # await run_single_strategy_example(input_file=sp500_file, strategy_name="MovingAverageCrossover")
-    #
-    #
+
+
     # RSI doesn't work
     # 1. Only 41 out of 81000 tests were “good”
     # That’s 0.05% success rate — effectively noise.
@@ -484,7 +483,6 @@ async def main():
     # 20–30% drawdowns for modest returns are unattractive for short-term trading.
     # You’d get better risk-adjusted returns just holding SPY.
     #
-    # RSI doesnt work
     # await run_single_strategy_example(input_file=sp500_file, strategy_name="RSI")
 
     # Rate of change doesn't work
@@ -493,7 +491,7 @@ async def main():
     # ❌ Underperforms passive investing (e.g., SPY buy-and-hold).
     # ⚠️ Shows signs of overfitting + signal noise.
 
-    await run_single_strategy_example(input_file=sp500_file, strategy_name="RateOfChange")
+    await run_single_strategy_example(input_file=sp500_file, strategy_name="BreakoutStrategy")
     # await run_single_strategy_example(strategy_name="MovingAverageCrossover")
 
     # Run the strategy comparison example
