@@ -487,7 +487,11 @@ async def main():
     # RSI doesnt work
     # await run_single_strategy_example(input_file=sp500_file, strategy_name="RSI")
 
-
+    # Rate of change doesn't work
+    # ❌ Is not profitable or robust across a broad universe.
+    # ❌ Has very few consistently winning tickers.
+    # ❌ Underperforms passive investing (e.g., SPY buy-and-hold).
+    # ⚠️ Shows signs of overfitting + signal noise.
 
     await run_single_strategy_example(input_file=sp500_file, strategy_name="RateOfChange")
     # await run_single_strategy_example(strategy_name="MovingAverageCrossover")
