@@ -143,6 +143,66 @@ class MovingAverageCrossoverStrategy(MomentumStrategy):
         return result
 
 
+class BreakoutStrategy(MomentumStrategy):
+    """
+    Breakout strategy.
+    Buy when price breaks 20-day high, exit (sell) on 10-day low.
+    """
+
+    def __init__(self, data_reader, high_period=20, low_period=10):
+        """
+        Initialize the Breakout strategy.
+
+        Args:
+            data_reader: An instance of DataReader.
+            high_period (int): Period for calculating the high price (default: 20 days).
+            low_period (int): Period for calculating the low price (default: 10 days).
+        """
+        super().__init__(data_reader)
+        self.high_period = high_period
+        self.low_period = low_period
+
+    async def generate_signals(self, symbol, start_date, end_date):
+        """Generate buy/sell signals based on price breakouts."""
+        # Get data for a longer period to calculate highs and lows
+        from datetime import timedelta
+
+        # Need more historical data for the rolling calculations
+        lookback_days = max(self.high_period, self.low_period) * 2
+        extended_start_date = start_date - timedelta(days=lookback_days)
+
+        # Get price data
+        df = await self.data_reader.get_data(symbol, extended_start_date, end_date)
+
+        # Check for empty dataframe
+        if df.empty:
+            return pd.DataFrame(index=pd.date_range(start_date, end_date), columns=['signal']).fillna(Signal.HOLD.value)
+
+        # Create a copy of the DataFrame to avoid SettingWithCopyWarning
+        df = df.copy()
+
+        # Calculate rolling high and low
+        df.loc[:, 'high_20d'] = df['high'].rolling(window=self.high_period).max()
+        df.loc[:, 'low_10d'] = df['low'].rolling(window=self.low_period).min()
+
+        # Generate signals
+        df.loc[:, 'signal'] = Signal.HOLD.value
+
+        # Buy when price breaks above the 20-day high (comparing current close to previous day's 20-day high)
+        buy_condition = (df['close'] > df['high_20d'].shift(1))
+        df.loc[buy_condition, 'signal'] = Signal.BUY.value
+
+        # Sell when price breaks below the 10-day low (comparing current close to previous day's 10-day low)
+        sell_condition = (df['close'] < df['low_10d'].shift(1))
+        df.loc[sell_condition, 'signal'] = Signal.SELL.value
+
+        # Filter to the requested date range and include debug columns
+        columns_to_return = ['signal', 'high_20d', 'low_10d']
+
+        result = df.loc[df.index >= start_date, columns_to_return]
+        return result
+
+
 class RSIStrategy(MomentumStrategy):
     """
     Relative Strength Index (RSI) strategy.
