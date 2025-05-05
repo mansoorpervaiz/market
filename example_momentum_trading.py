@@ -52,9 +52,12 @@ async def run_single_strategy_example(input_file=None):
         input_file (str, optional): Path to a CSV file containing tickers to process.
                                    If not provided, all available tickers will be used.
     """
-    # Create output/plots directory if it doesn't exist
-    output_dir = Path("output/plots")
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # Create output directories if they don't exist
+    ticker_plots_dir = Path("output/ticker-plots")
+    ticker_plots_dir.mkdir(parents=True, exist_ok=True)
+
+    cumulative_results_dir = Path("output/cumulative-results")
+    cumulative_results_dir.mkdir(parents=True, exist_ok=True)
 
     # Initialize the data reader
     data_reader = DataReader()
@@ -120,7 +123,7 @@ async def run_single_strategy_example(input_file=None):
             # Plot the equity curve
             plt.figure(figsize=(12, 6))
             report.plot_equity_curve()
-            plt.savefig(f"output/plots/{symbol}_rsi_strategy.png")
+            plt.savefig(f"output/ticker-plots/{symbol}_rsi_strategy.png")
             plt.close()
 
         except Exception as e:
@@ -184,7 +187,7 @@ async def run_single_strategy_example(input_file=None):
         plt.ylabel('Frequency')
         plt.legend()
         plt.grid(True)
-        plt.savefig("output/plots/cumulative_returns_distribution.png")
+        plt.savefig("output/cumulative-results/cumulative_returns_distribution.png")
         plt.close()
 
         # Plot top 10 performers
@@ -197,15 +200,15 @@ async def run_single_strategy_example(input_file=None):
         plt.xticks(rotation=45)
         plt.grid(True, axis='y')
         plt.tight_layout()
-        plt.savefig("output/plots/top_10_performers.png")
+        plt.savefig("output/cumulative-results/top_10_performers.png")
         plt.close()
 
         print("\nCumulative report visualizations saved to:")
-        print("- output/plots/cumulative_returns_distribution.png")
-        print("- output/plots/top_10_performers.png")
+        print("- output/cumulative-results/cumulative_returns_distribution.png")
+        print("- output/cumulative-results/top_10_performers.png")
 
         # Save the full report to CSV
-        csv_filename = "output/cumulative_backtest_report.csv"
+        csv_filename = "output/cumulative-results/cumulative_backtest_report.csv"
         df_report.to_csv(csv_filename, index=False)
         print(f"- Full report saved to {csv_filename}")
 
@@ -290,7 +293,7 @@ async def compare_strategies_example():
             plt.ylabel('Capital ($)')
             plt.legend()
             plt.grid(True)
-            plt.savefig(f"output/plots/{symbol}_strategy_comparison.png")
+            plt.savefig(f"output/ticker-plots/{symbol}_strategy_comparison.png")
             plt.close()
 
         except Exception as e:
@@ -361,7 +364,7 @@ async def compare_to_benchmark_example():
             # Plot the comparison
             plt.figure(figsize=(12, 6))
             strategy_report.plot_equity_curve(benchmark_data=benchmark_data)
-            plt.savefig(f"output/plots/{symbol}_vs_{benchmark_symbol}.png")
+            plt.savefig(f"output/ticker-plots/{symbol}_vs_{benchmark_symbol}.png")
             plt.close()
 
         except Exception as e:
@@ -427,8 +430,8 @@ def run_rsi_optimization():
         results = list(executor.map(evaluate_wrapper, tasks))
 
     df = pd.DataFrame(results)
-    df.to_csv("output/rsi_grid_optimization_results.csv", index=False)
-    print("Results saved to output/rsi_grid_optimization_results.csv")
+    df.to_csv("output/cumulative-results/rsi_grid_optimization_results.csv", index=False)
+    print("Results saved to output/cumulative-results/rsi_grid_optimization_results.csv")
 async def main():
     """Run all examples."""
     # Run the single strategy example with S&P 500 tickers
