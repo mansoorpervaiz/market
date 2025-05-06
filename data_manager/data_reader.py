@@ -134,12 +134,15 @@ class DataReader:
         :param end_date: string for end date in format YYYY-MM-DD
         :return: pandas dataframe
         """
-        if self.loaded_data_symbol != symbol:
+        # Check if we need to load data (different symbol or data not loaded yet)
+        if self.loaded_data_symbol != symbol or self.loaded_data is None:
 
             dataframe = self._load_data(symbol)
             # did not find data on local disk, downloading and saving it
             if dataframe is None:
+                logger.info(f"Data for {symbol} not found locally. Downloading from Alpha Vantage...")
                 dataframe = await self._download_and_save_data(symbol=symbol)
+                logger.info(f"Downloaded and saved data for {symbol}")
 
             # is the data up-to-date
             last_date_in_df = dataframe.index.max()

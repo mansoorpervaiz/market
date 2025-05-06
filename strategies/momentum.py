@@ -151,10 +151,10 @@ class BreakoutStrategy(MomentumStrategy):
     """
 
     def __init__(self, data_reader, high_period=20, low_period=10, 
-                 use_volatility_filter=True, atr_period=14, atr_threshold=1.5,
-                 use_volume_confirmation=True, volume_threshold=1.5,
+                 use_volatility_filter=True, atr_period=14, atr_threshold=1.0,
+                 use_volume_confirmation=True, volume_threshold=1.2,
                  use_trailing_stop=True, trailing_stop_pct=2.0,
-                 use_trend_filter=True, ma_period=200):
+                 use_trend_filter=True, ma_period=100):
         """
         Initialize the enhanced Breakout strategy.
 
@@ -227,13 +227,7 @@ class BreakoutStrategy(MomentumStrategy):
 
         # Calculate moving average for trend filter
         if self.use_trend_filter:
-            df.loc[:, 'ma_200d'] = df['close'].rolling(window=self.ma_period).mean()
-
-        # Initialize trailing stop columns
-        if self.use_trailing_stop:
-            df.loc[:, 'highest_since_buy'] = np.nan
-            df.loc[:, 'trailing_stop'] = np.nan
-            df.loc[:, 'in_position'] = False
+            df.loc[:, 'ma_100d'] = df['close'].rolling(window=self.ma_period).mean()
 
         # Generate signals
         df.loc[:, 'signal'] = Signal.HOLD.value
@@ -251,32 +245,54 @@ class BreakoutStrategy(MomentumStrategy):
 
         # Apply trend filter
         if self.use_trend_filter:
-            buy_condition = buy_condition & (df['close'] > df['ma_200d'])
+            buy_condition = buy_condition & (df['close'] > df['ma_100d'])
 
         # Apply buy signals
         df.loc[buy_condition, 'signal'] = Signal.BUY.value
 
         # Process trailing stops
         if self.use_trailing_stop:
-            # Track positions and update trailing stops
+            # Initialize position tracking columns with vectorized operations
+            df.loc[:, 'position_state'] = 0  # 0: not in position, 1: in position
+            df.loc[:, 'highest_since_buy'] = np.nan
+            df.loc[:, 'trailing_stop'] = np.nan
+
+            # Process signals and update position state
             for i in range(1, len(df)):
-                if df.iloc[i-1]['signal'] == Signal.BUY.value:
-                    df.iloc[i, df.columns.get_loc('in_position')] = True
+                # Get previous state
+                prev_position_state = df.iloc[i-1]['position_state']
+                current_signal = df.iloc[i-1]['signal']
+
+                # Update position state based on previous signal
+                if current_signal == Signal.BUY.value:
+                    # Enter position
+                    df.iloc[i, df.columns.get_loc('position_state')] = 1
                     df.iloc[i, df.columns.get_loc('highest_since_buy')] = df.iloc[i]['close']
                     df.iloc[i, df.columns.get_loc('trailing_stop')] = df.iloc[i]['close'] * (1 - self.trailing_stop_pct/100)
-                elif df.iloc[i-1]['in_position']:
-                    df.iloc[i, df.columns.get_loc('in_position')] = True
-                    df.iloc[i, df.columns.get_loc('highest_since_buy')] = max(
-                        df.iloc[i-1]['highest_since_buy'], df.iloc[i]['close']
-                    )
-                    df.iloc[i, df.columns.get_loc('trailing_stop')] = df.iloc[i]['highest_since_buy'] * (1 - self.trailing_stop_pct/100)
+                elif current_signal == Signal.SELL.value:
+                    # Exit position
+                    df.iloc[i, df.columns.get_loc('position_state')] = 0
+                    # Reset tracking variables
+                    df.iloc[i, df.columns.get_loc('highest_since_buy')] = np.nan
+                    df.iloc[i, df.columns.get_loc('trailing_stop')] = np.nan
+                else:
+                    # Maintain previous state
+                    df.iloc[i, df.columns.get_loc('position_state')] = prev_position_state
 
-            # Sell when price drops below trailing stop
-            trailing_stop_condition = df['in_position'] & (df['close'] < df['trailing_stop'])
+                    # If in position, update highest price and trailing stop
+                    if prev_position_state == 1:
+                        # Update highest price since buy
+                        prev_highest = df.iloc[i-1]['highest_since_buy']
+                        current_price = df.iloc[i]['close']
+                        new_highest = max(prev_highest, current_price) if not np.isnan(prev_highest) else current_price
+                        df.iloc[i, df.columns.get_loc('highest_since_buy')] = new_highest
+
+                        # Update trailing stop
+                        df.iloc[i, df.columns.get_loc('trailing_stop')] = new_highest * (1 - self.trailing_stop_pct/100)
+
+            # Generate sell signals based on trailing stop (only when in position)
+            trailing_stop_condition = (df['position_state'] == 1) & (df['close'] < df['trailing_stop'])
             df.loc[trailing_stop_condition, 'signal'] = Signal.SELL.value
-
-            # Reset position after sell
-            df.loc[df['signal'] == Signal.SELL.value, 'in_position'] = False
         else:
             # Traditional sell when price breaks below the low_period low
             sell_condition = (df['close'] < df['low_10d'].shift(1))
@@ -291,9 +307,9 @@ class BreakoutStrategy(MomentumStrategy):
         if self.use_volume_confirmation:
             columns_to_return.extend(['volume_ratio'])
         if self.use_trend_filter:
-            columns_to_return.append('ma_200d')
+            columns_to_return.append('ma_100d')
         if self.use_trailing_stop:
-            columns_to_return.extend(['highest_since_buy', 'trailing_stop', 'in_position'])
+            columns_to_return.extend(['highest_since_buy', 'trailing_stop', 'position_state'])
 
         result = df.loc[df.index >= start_date, columns_to_return]
         return result

@@ -20,7 +20,7 @@ from io import StringIO
 class AsyncAlphaVantageDownloader:
     BASE_URL = "https://www.alphavantage.co/query"
     # Get API key from environment variable or use default value
-    API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY", "C09R44C5Y37M2C8W")
+    API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY", "GNUI443FX0DTXC96")
     RETRIES = 3
     # Rate limiting: 75 requests per minute
     RATE_LIMIT = 75

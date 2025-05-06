@@ -235,8 +235,8 @@ class TestMomentumStrategies(unittest.TestCase):
 
         # Verify that all expected columns are included in the result
         expected_columns = ['signal', 'high_20d', 'low_10d', 'atr', 'atr_ratio', 
-                           'volume_ratio', 'ma_200d', 'highest_since_buy', 
-                           'trailing_stop', 'in_position']
+                           'volume_ratio', 'ma_100d', 'highest_since_buy', 
+                           'trailing_stop', 'position_state']
         for col in expected_columns:
             self.assertIn(col, signals.columns)
 
