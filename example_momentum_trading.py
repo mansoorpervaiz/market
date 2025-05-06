@@ -23,7 +23,7 @@ from data_manager.data_reader import DataReader, FieldName
 from strategies.momentum import (
     RateOfChangeStrategy,
     MovingAverageCrossoverStrategy,
-    RSIStrategy
+    RSIStrategy, BreakoutStrategy
 )
 from backtester import BackTester
 
@@ -82,12 +82,18 @@ async def run_single_strategy_example(input_file=None, strategy_name="MovingAver
             threshold_pct=5,
             sell_threshold_pct=-3
         )
-    else:  # Default to MovingAverageCrossover
+    elif strategy_name == "MovingAverageCrossover":  # Default to MovingAverageCrossover
         strategy = MovingAverageCrossoverStrategy(
             data_reader=data_reader,
             short_window=20,
             long_window=50
         )
+    elif strategy_name == "BreakoutStrategy":
+        strategy = BreakoutStrategy(
+            data_reader=data_reader
+        )
+    else:
+        raise ValueError(f"Invalid strategy name: {strategy_name}")
 
     # Initialize the backtester
     backtester = BackTester(
