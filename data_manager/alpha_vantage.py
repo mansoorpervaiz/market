@@ -106,6 +106,10 @@ class AsyncAlphaVantageDownloader:
                         error_msg = f"Premium endpoint error for {params['symbol']}: {data['Information']}"
                         print(error_msg)
                         raise ValueError(error_msg)  # Raise exception to stop execution
+                    if 'Error Message' in data:
+                        error_msg = f"Error for {params['symbol']}: {data['Error Message']}"
+                        print(error_msg)
+                        raise ValueError(error_msg)
 
                     # Check if response is empty
                     if not data:

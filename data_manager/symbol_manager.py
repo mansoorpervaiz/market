@@ -35,8 +35,12 @@ class SymbolManager:
 
         # If a file is provided, load symbols from it
         if symbols_file and symbols_file != "":
-            self.df = pd.read_csv(symbols_file)
-            self._load_symbols_from_dataframe()
+            # Check if the file exists before trying to read it
+            if os.path.exists(symbols_file):
+                self.df = pd.read_csv(symbols_file)
+                self._load_symbols_from_dataframe()
+            else:
+                print(f"Warning: Symbols file '{symbols_file}' does not exist. Initializing with empty symbols list.")
 
     def _load_symbols_from_dataframe(self):
         """Load symbols from the dataframe."""

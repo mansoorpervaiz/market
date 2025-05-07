@@ -4,3 +4,4 @@ pandas~=2.2.3
 python-dateutil~=2.9.0.post0
 lxml>=4.9.3
 mock>=4.0.3
+certifi>=2023.7.22

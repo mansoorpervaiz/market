@@ -25,12 +25,39 @@ from strategies.momentum import (
     MovingAverageCrossoverStrategy,
     RSIStrategy, BreakoutStrategy
 )
+from strategies.top_breakout_strategy import TopBreakoutStrategy, RankingCriteria
 from backtester import BackTester
 
 
+def fetch_sp500_tickers(output_csv="data/SP500.csv"):
+    url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+    try:
+        import ssl
+        import certifi
+        import urllib.request
+
+        # Create a context with the default certificates
+        context = ssl.create_default_context(cafile=certifi.where())
+
+        # Open the URL with the SSL context
+        with urllib.request.urlopen(url, context=context) as response:
+            html = response.read()
+
+        # Read the first table from the HTML content
+        df = pd.read_html(html, header=0)[0]
+
+        # Clean symbol column (some tickers have periods instead of hyphens, e.g., BRK.B)
+        df['Symbol'] = df['Symbol'].str.replace('.', '-', regex=False)
+
+        # Save to CSV
+        df[['Symbol', 'Security']].to_csv(output_csv, index=False)
+        print(f"✅ Saved {len(df)} S&P 500 tickers to {output_csv}")
+    except Exception as e:
+        print(f"❌ Failed to fetch S&P 500 tickers: {e}")
+
 def get_available_tickers():
     """Get a list of all tickers that have data available."""
-    data_dir = Path(DataReader.DATA_LOCATION)
+    data_dir = Path(DataReader.DATA_PICKLE_LOCATION)
     tickers = []
 
     # Check if the directory exists
@@ -52,7 +79,7 @@ async def run_single_strategy_example(input_file=None, strategy_name="MovingAver
         input_file (str, optional): Path to a CSV file containing tickers to process.
                                    If not provided, all available tickers will be used.
         strategy_name (str, optional): Name of the strategy to use. 
-                                      Options: "MovingAverageCrossover", "RSI", "RateOfChange".
+                                      Options: "MovingAverageCrossover", "RSI", "RateOfChange", "BreakoutStrategy", "TopBreakout".
                                       Default is "MovingAverageCrossover".
     """
     # Create output directories if they don't exist
@@ -92,6 +119,15 @@ async def run_single_strategy_example(input_file=None, strategy_name="MovingAver
         strategy = BreakoutStrategy(
             data_reader=data_reader
         )
+    elif strategy_name == "TopBreakout":
+        strategy = TopBreakoutStrategy(
+            data_reader=data_reader,
+            symbols_file="data/SP500.csv",
+            avg_period=20,
+            top_percent=10,
+            ranking_criteria=RankingCriteria.COMBINED_SCORE,
+            rebalance_days=7
+        )
     else:
         raise ValueError(f"Invalid strategy name: {strategy_name}")
 
@@ -103,18 +139,30 @@ async def run_single_strategy_example(input_file=None, strategy_name="MovingAver
     )
 
     # Define the backtest parameters
-    start_date = date(2014, 1, 1)
-    end_date = date(2024, 12, 31)
+    # Use a longer historical period for comprehensive backtesting
+    start_date = date(2010, 1, 1)  # Starting from 2010 for more historical data
+    end_date = date(2025, 1, 1)  # Use today's date to include all available data
 
     # Get tickers based on input file or all available tickers
-    if input_file and os.path.exists(input_file):
-        # Read tickers from the input file
-        tickers_df = pd.read_csv(input_file)
-        if 'Symbol' in tickers_df.columns:
-            tickers = tickers_df['Symbol'].tolist()
-            print(f"Using {len(tickers)} tickers from {input_file}")
+    if input_file:
+        # Check if the file exists, if not create it (for SP500.csv)
+        if not os.path.exists(input_file) and input_file == "data/SP500.csv":
+            # Create directory if it doesn't exist
+            os.makedirs(os.path.dirname(input_file), exist_ok=True)
+            # Fetch and save S&P 500 tickers
+            fetch_sp500_tickers(input_file)
+
+        # Read tickers from the input file if it exists now
+        if os.path.exists(input_file):
+            tickers_df = pd.read_csv(input_file)
+            if 'Symbol' in tickers_df.columns:
+                tickers = tickers_df['Symbol'].tolist()
+                print(f"Using {len(tickers)} tickers from {input_file}")
+            else:
+                print(f"Warning: 'Symbol' column not found in {input_file}. Using all available tickers instead.")
+                tickers = get_available_tickers()
         else:
-            print(f"Warning: 'Symbol' column not found in {input_file}. Using all available tickers instead.")
+            print(f"Warning: File {input_file} does not exist and could not be created. Using all available tickers instead.")
             tickers = get_available_tickers()
     else:
         # Get all available tickers
@@ -136,30 +184,36 @@ async def run_single_strategy_example(input_file=None, strategy_name="MovingAver
                 end_date=end_date
             )
 
-            # Store the report
-            reports[symbol] = report
+            # Only store reports with trades
+            if len(report.trades) > 0:
+                reports[symbol] = report
 
-            # Print the results
-            print(f"\nBacktest Results for {symbol}:")
-            for key, value in report.summary().items():
-                print(f"{key}: {value}")
+                # Print the results
+                print(f"\nBacktest Results for {symbol}:")
+                for key, value in report.summary().items():
+                    print(f"{key}: {value}")
 
-            # Plot the equity curve
-            plt.figure(figsize=(12, 6))
-            report.plot_equity_curve()
-            plt.savefig(f"output/ticker-plots/{symbol}_{strategy_name.lower()}_strategy.png")
-            plt.close()
+                # Plot the equity curve
+                plt.figure(figsize=(12, 6))
+                report.plot_equity_curve()
+                plt.savefig(f"output/ticker-plots/{symbol}_{strategy_name.lower()}_strategy.png")
+                plt.close()
+            else:
+                print(f"No trades generated for {symbol}")
 
         except Exception as e:
             print(f"Error processing {symbol}: {str(e)}")
 
-    print(f"Completed backtesting for {len(reports)} tickers.")
+    print(f"Completed backtesting for {len(tickers)} tickers.")
+    print(f"Number of symbols with trading activity: {len(reports)}")
 
     # Generate cumulative report
     if reports:
         print("\n" + "="*50)
         print("CUMULATIVE REPORT FOR ALL SYMBOLS")
         print("="*50)
+        print(f"Total number of symbols processed: {len(tickers)}")
+        print(f"Number of symbols with trading activity: {len(reports)}")
 
         # Create a DataFrame with key metrics for each ticker
         report_data = []
@@ -497,8 +551,15 @@ async def main():
     # ❌ Underperforms passive investing (e.g., SPY buy-and-hold).
     # ⚠️ Shows signs of overfitting + signal noise.
 
-    await run_single_strategy_example(input_file=sp500_file, strategy_name="BreakoutStrategy")
-    # await run_single_strategy_example(strategy_name="MovingAverageCrossover")
+    # Run the BreakoutStrategy
+    # await run_single_strategy_example(input_file=sp500_file, strategy_name="BreakoutStrategy")
+
+    # Run the TopBreakout strategy with all historical data
+    print("\nRunning TopBreakout strategy with all historical data...")
+    await run_single_strategy_example(input_file=sp500_file, strategy_name="TopBreakout")
+
+    # Uncomment to run with all available tickers instead of just S&P 500
+    # await run_single_strategy_example(strategy_name="TopBreakout")
 
     # Run the strategy comparison example
     # await compare_strategies_example()

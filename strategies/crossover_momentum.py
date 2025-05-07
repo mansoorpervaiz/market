@@ -1,0 +1,167 @@
+# Copyright (c) 2025 Mansoor Pervaiz
+# All rights reserved.
+#
+# This file is part of a proprietary software project.
+# Unauthorized copying, distribution, modification, or use of this file,
+# via any medium, is strictly prohibited unless explicit permission is granted
+# by the author.
+#
+# For licensing inquiries, contact: mansoorpervaizdev@gmail.com
+
+import pandas as pd
+import numpy as np
+from datetime import timedelta
+from enum import Enum
+
+from strategies.momentum import MomentumStrategy, Signal
+
+class CrossoverMomentumStrategy(MomentumStrategy):
+    """
+    Crossover Momentum strategy.
+    
+    Combines multiple timeframe moving average crossovers with momentum indicators
+    and volume confirmation for a robust trading strategy.
+    
+    Features:
+    1. Multiple timeframe moving average crossovers (short, medium, long)
+    2. RSI momentum filter
+    3. Volume confirmation
+    4. Trend strength filter
+    """
+
+    def __init__(self, data_reader, 
+                 short_window=10, medium_window=30, long_window=50,
+                 rsi_period=14, rsi_oversold=30, rsi_overbought=70,
+                 volume_threshold=1.5, trend_strength_period=20):
+        """
+        Initialize the Crossover Momentum strategy.
+
+        Args:
+            data_reader: An instance of DataReader.
+            short_window (int): Window for the short-term moving average.
+            medium_window (int): Window for the medium-term moving average.
+            long_window (int): Window for the long-term moving average.
+            rsi_period (int): Period for RSI calculation.
+            rsi_oversold (int): RSI threshold for oversold condition.
+            rsi_overbought (int): RSI threshold for overbought condition.
+            volume_threshold (float): Volume multiple above average for confirmation.
+            trend_strength_period (int): Period for trend strength calculation.
+        """
+        super().__init__(data_reader)
+        self.short_window = short_window
+        self.medium_window = medium_window
+        self.long_window = long_window
+        self.rsi_period = rsi_period
+        self.rsi_oversold = rsi_oversold
+        self.rsi_overbought = rsi_overbought
+        self.volume_threshold = volume_threshold
+        self.trend_strength_period = trend_strength_period
+
+    async def generate_signals(self, symbol, start_date, end_date):
+        """
+        Generate buy/sell signals based on Crossover Momentum strategy.
+        
+        Args:
+            symbol (str): The stock symbol.
+            start_date: The start date for the analysis.
+            end_date: The end date for the analysis.
+            
+        Returns:
+            pd.DataFrame: DataFrame with dates as index and signals as values.
+        """
+        # Get data for a longer period to calculate indicators
+        lookback_days = max(self.long_window, self.rsi_period, self.trend_strength_period) * 3
+        extended_start_date = start_date - timedelta(days=lookback_days)
+        
+        # Get price data
+        df = await self.data_reader.get_data(symbol, extended_start_date, end_date)
+        
+        # Check for empty dataframe
+        if df.empty:
+            return pd.DataFrame(index=pd.date_range(start_date, end_date), columns=['signal']).fillna(Signal.HOLD.value)
+        
+        # Create a copy of the DataFrame to avoid SettingWithCopyWarning
+        df = df.copy()
+        
+        # Calculate moving averages
+        df['short_ma'] = df['close'].rolling(window=self.short_window).mean()
+        df['medium_ma'] = df['close'].rolling(window=self.medium_window).mean()
+        df['long_ma'] = df['close'].rolling(window=self.long_window).mean()
+        
+        # Calculate RSI
+        df['price_change'] = df['close'].diff()
+        df['gain'] = df['price_change'].clip(lower=0)
+        df['loss'] = -df['price_change'].clip(upper=0)
+        
+        # Calculate average gain and loss using Wilder's smoothing
+        df['avg_gain'] = df['gain'].ewm(alpha=1/self.rsi_period, min_periods=self.rsi_period).mean()
+        df['avg_loss'] = df['loss'].ewm(alpha=1/self.rsi_period, min_periods=self.rsi_period).mean()
+        
+        # Calculate RS and RSI
+        df['rs'] = df['avg_gain'] / df['avg_loss']
+        df['rsi'] = 100 - (100 / (1 + df['rs']))
+        
+        # Calculate volume average
+        df['volume_avg'] = df['volume'].rolling(window=20).mean()
+        df['volume_ratio'] = df['volume'] / df['volume_avg']
+        
+        # Calculate trend strength (using standard deviation of returns)
+        df['returns'] = df['close'].pct_change()
+        df['trend_strength'] = df['returns'].rolling(window=self.trend_strength_period).std() * np.sqrt(252)  # Annualized
+        
+        # Initialize signal column
+        df['signal'] = Signal.HOLD.value
+        
+        # Generate buy signals
+        # 1. Short MA crosses above Medium MA
+        short_above_medium = (df['short_ma'] > df['medium_ma']) & (df['short_ma'].shift(1) <= df['medium_ma'].shift(1))
+        
+        # 2. Medium MA crosses above Long MA (stronger signal)
+        medium_above_long = (df['medium_ma'] > df['long_ma']) & (df['medium_ma'].shift(1) <= df['long_ma'].shift(1))
+        
+        # 3. All MAs are aligned (short > medium > long) - strongest signal
+        all_aligned = (df['short_ma'] > df['medium_ma']) & (df['medium_ma'] > df['long_ma'])
+        
+        # 4. RSI conditions
+        rsi_bullish = df['rsi'] > self.rsi_oversold
+        rsi_not_overbought = df['rsi'] < self.rsi_overbought
+        
+        # 5. Volume confirmation
+        volume_confirmed = df['volume_ratio'] > self.volume_threshold
+        
+        # Combine signals with different strengths
+        # Strong buy: All aligned + RSI bullish + Volume confirmed
+        strong_buy = all_aligned & rsi_bullish & volume_confirmed
+        
+        # Medium buy: Medium crosses above Long + RSI bullish
+        medium_buy = medium_above_long & rsi_bullish & rsi_not_overbought
+        
+        # Weak buy: Short crosses above Medium + RSI not overbought
+        weak_buy = short_above_medium & rsi_not_overbought
+        
+        # Apply buy signals
+        df.loc[strong_buy, 'signal'] = Signal.BUY.value
+        df.loc[medium_buy & ~strong_buy, 'signal'] = Signal.BUY.value
+        df.loc[weak_buy & ~medium_buy & ~strong_buy, 'signal'] = Signal.BUY.value
+        
+        # Generate sell signals
+        # 1. Short MA crosses below Medium MA
+        short_below_medium = (df['short_ma'] < df['medium_ma']) & (df['short_ma'].shift(1) >= df['medium_ma'].shift(1))
+        
+        # 2. RSI overbought
+        rsi_overbought = df['rsi'] > self.rsi_overbought
+        
+        # 3. Trend weakening (decreasing trend strength)
+        trend_weakening = df['trend_strength'] < df['trend_strength'].shift(1)
+        
+        # Combine sell signals
+        sell_signal = short_below_medium | (rsi_overbought & trend_weakening)
+        
+        # Apply sell signals
+        df.loc[sell_signal, 'signal'] = Signal.SELL.value
+        
+        # Filter to the requested date range and include debug columns
+        columns_to_return = ['signal', 'short_ma', 'medium_ma', 'long_ma', 'rsi', 'volume_ratio', 'trend_strength']
+        
+        result = df.loc[df.index >= start_date, columns_to_return]
+        return result
