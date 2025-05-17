@@ -104,6 +104,50 @@ Run the test script to verify that lxml is properly installed:
 python test_lxml_installation.py
 ```
 
+## Parallel Processing Features
+
+This project implements parallel processing to improve performance for data-intensive operations:
+
+### Async IO
+
+The codebase uses async IO throughout to handle I/O-bound operations efficiently:
+
+- Data fetching operations run asynchronously
+- Multiple backtests can run concurrently
+- Strategy comparisons execute in parallel
+
+### Parallel Processing with Dask
+
+For CPU-bound operations, the project uses Dask to distribute work across multiple cores:
+
+- Backtesting large datasets is parallelized using Dask
+- Data processing for complex strategies can be distributed
+- Large dataset operations benefit from Dask's out-of-core capabilities
+
+### Usage Example
+
+When creating a BackTester instance, you can control parallel processing:
+
+```python
+from backtester import BackTester
+from data_manager.data_reader import DataReader
+
+# Create a backtester with default parallel processing (enabled)
+backtester = BackTester(DataReader())
+
+# Disable dask parallel processing
+backtester = BackTester(DataReader(), use_dask=False)
+
+# Specify number of workers for dask
+backtester = BackTester(DataReader(), n_workers=4)
+```
+
+### Performance Considerations
+
+- For small datasets (< 1000 rows), parallel processing is automatically disabled to avoid overhead
+- Dask is most beneficial for CPU-intensive operations on large datasets
+- Async IO provides benefits even for smaller operations by allowing concurrent execution
+
 ## Usage
 
 ### Data Ingestion
