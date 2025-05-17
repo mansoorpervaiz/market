@@ -20,17 +20,19 @@ from enum import Enum
 from data_manager.alpha_vantage import AsyncAlphaVantageDownloader
 from logger import get_logger
 from config import config
+from interfaces.data_access.data_reader_interface import DataReaderInterface
+from interfaces.data_access.downloader_interface import DownloaderInterface
 
 # Initialize logger
 logger = get_logger(__name__)
 
 
-class DataReader:
+class DataReader(DataReaderInterface):
     DATA_PICKLE_LOCATION = config.DATA_PICKLE_LOCATION
     DATA_JSON_LOCATION = config.DATA_JSON_LOCATION
 
-    def __init__(self):
-        self.avDownloader = AsyncAlphaVantageDownloader()
+    def __init__(self, downloader: DownloaderInterface = None):
+        self.avDownloader = downloader if downloader else AsyncAlphaVantageDownloader()
         self.loaded_data = None
         self.loaded_data_symbol = None
 

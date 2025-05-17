@@ -14,12 +14,14 @@ import asyncio
 import ssl
 import urllib.request
 from .alpha_vantage import AsyncAlphaVantageDownloader
+from interfaces.data_access.symbol_manager_interface import SymbolManagerInterface
+from interfaces.data_access.downloader_interface import DownloaderInterface
 
 
-class SymbolManager:
+class SymbolManager(SymbolManagerInterface):
     DATA_LOCATION = os.path.join("..", "data")
 
-    def __init__(self, symbols_file="", downloader=None):
+    def __init__(self, symbols_file="", downloader: DownloaderInterface = None):
         """
         Initialize the SymbolManager.
 
@@ -27,7 +29,7 @@ class SymbolManager:
             symbols_file: Optional path to a CSV file containing symbols.
                          If provided, symbols will be loaded from this file.
                          If not provided, symbols will be fetched from Alpha Vantage API.
-            downloader: Optional AsyncAlphaVantageDownloader instance.
+            downloader: Optional DownloaderInterface instance.
                        Required if symbols_file is not provided.
         """
         self.symbols = []
