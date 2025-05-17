@@ -192,30 +192,89 @@ class TopBreakoutStrategy(MomentumStrategy):
         date_range = pd.date_range(start=start_date, end=end_date)
 
         # Initialize DataFrame with HOLD signals
-        signals = pd.DataFrame(index=date_range, columns=['signal'])
-        signals['signal'] = Signal.HOLD.value
+        signals = self._initialize_signals_dataframe(date_range)
 
         # Process each date in the range
         for current_date in date_range:
             current_date = current_date.date()
 
-            # Check if we need to rebalance
-            if (self.last_rebalance_date is None or 
-                (current_date - self.last_rebalance_date).days >= self.rebalance_days):
+            # Check if we need to rebalance and do so if necessary
+            signals = await self._handle_rebalancing(signals, symbol, current_date, start_date)
 
-                # Select top symbols
-                self.selected_symbols = await self._select_top_symbols(current_date)
-                self.last_rebalance_date = current_date
+        return signals
 
-            # Generate signals only for selected symbols
-            if symbol in self.selected_symbols:
-                # If the symbol is in our selected list, set a BUY signal
-                signals.loc[current_date, 'signal'] = Signal.BUY.value
-            else:
-                # If the symbol was previously in our list but no longer is, set a SELL signal
-                if current_date > start_date:
-                    prev_date = (pd.Timestamp(current_date) - pd.Timedelta(days=1)).date()
-                    if prev_date in signals.index and signals.loc[prev_date, 'signal'] == Signal.BUY.value:
-                        signals.loc[current_date, 'signal'] = Signal.SELL.value
+    def _initialize_signals_dataframe(self, date_range):
+        """
+        Initialize a DataFrame with HOLD signals for the given date range.
+
+        Args:
+            date_range (pd.DatetimeIndex): Range of dates for the analysis.
+
+        Returns:
+            pd.DataFrame: DataFrame with dates as index and HOLD signals.
+        """
+        signals = pd.DataFrame(index=date_range, columns=['signal'])
+        signals['signal'] = Signal.HOLD.value
+        return signals
+
+    async def _handle_rebalancing(self, signals, symbol, current_date, start_date):
+        """
+        Handle rebalancing of selected symbols and generate signals accordingly.
+
+        Args:
+            signals (pd.DataFrame): DataFrame with signals.
+            symbol (str): The stock symbol.
+            current_date (date): Current date being processed.
+            start_date (date): Start date of the analysis.
+
+        Returns:
+            pd.DataFrame: Updated signals DataFrame.
+        """
+        # Check if we need to rebalance
+        if self._should_rebalance(current_date):
+            # Select top symbols
+            self.selected_symbols = await self._select_top_symbols(current_date)
+            self.last_rebalance_date = current_date
+
+        # Generate signals based on whether the symbol is in the selected list
+        signals = self._generate_signals_for_date(signals, symbol, current_date, start_date)
+
+        return signals
+
+    def _should_rebalance(self, current_date):
+        """
+        Determine if rebalancing is needed based on the last rebalance date.
+
+        Args:
+            current_date (date): Current date being processed.
+
+        Returns:
+            bool: True if rebalancing is needed, False otherwise.
+        """
+        return (self.last_rebalance_date is None or 
+                (current_date - self.last_rebalance_date).days >= self.rebalance_days)
+
+    def _generate_signals_for_date(self, signals, symbol, current_date, start_date):
+        """
+        Generate signals for a specific date based on selected symbols.
+
+        Args:
+            signals (pd.DataFrame): DataFrame with signals.
+            symbol (str): The stock symbol.
+            current_date (date): Current date being processed.
+            start_date (date): Start date of the analysis.
+
+        Returns:
+            pd.DataFrame: Updated signals DataFrame.
+        """
+        if symbol in self.selected_symbols:
+            # If the symbol is in our selected list, set a BUY signal
+            signals.loc[current_date, 'signal'] = Signal.BUY.value
+        else:
+            # If the symbol was previously in our list but no longer is, set a SELL signal
+            if current_date > start_date:
+                prev_date = (pd.Timestamp(current_date) - pd.Timedelta(days=1)).date()
+                if prev_date in signals.index and signals.loc[prev_date, 'signal'] == Signal.BUY.value:
+                    signals.loc[current_date, 'signal'] = Signal.SELL.value
 
         return signals
