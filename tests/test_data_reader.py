@@ -96,17 +96,20 @@ class TestDataReader(unittest.TestCase):
 
         # Save the original data directory
         self.original_data_pickle_location = config.DATA_PICKLE_LOCATION
+        self.original_class_data_pickle_location = DataReader.DATA_PICKLE_LOCATION
 
         # Set the data directory to our test directory
         config.DATA_PICKLE_LOCATION = str(self.test_data_dir)
+        DataReader.DATA_PICKLE_LOCATION = str(self.test_data_dir)
 
     def tearDown(self):
         """Clean up after tests."""
         # Restore the original data directory
         config.DATA_PICKLE_LOCATION = self.original_data_pickle_location
+        DataReader.DATA_PICKLE_LOCATION = self.original_class_data_pickle_location
 
         # Remove test data files
-        for file in self.test_data_dir.glob('*.pickle'):
+        for file in self.test_data_dir.glob('*.pkl.gz'):
             file.unlink()
 
         # Remove the test directory
@@ -227,7 +230,7 @@ class TestDataReader(unittest.TestCase):
         self.data_reader._save_data('AAPL', self.sample_df)
 
         # Verify that the file was created
-        file_path = Path(config.DATA_PICKLE_LOCATION) / 'AAPL.pickle'
+        file_path = Path(config.DATA_PICKLE_LOCATION) / 'AAPL.pkl.gz'
         self.assertTrue(file_path.exists())
 
         # Load the data

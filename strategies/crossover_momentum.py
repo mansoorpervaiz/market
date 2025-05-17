@@ -11,9 +11,8 @@
 import pandas as pd
 import numpy as np
 from datetime import timedelta
-from enum import Enum
 
-from strategies.momentum import MomentumStrategy, Signal
+from strategies.base_strategy import MomentumStrategy, Signal
 from interfaces.data_access.data_reader_interface import DataReaderInterface
 
 class CrossoverMomentumStrategy(MomentumStrategy):
@@ -70,41 +69,28 @@ class CrossoverMomentumStrategy(MomentumStrategy):
         Returns:
             pd.DataFrame: DataFrame with dates as index and signals as values.
         """
-        # Get data for a longer period to calculate indicators
+        # Get data with lookback period
         lookback_days = max(self.long_window, self.rsi_period, self.trend_strength_period) * 3
-        extended_start_date = start_date - timedelta(days=lookback_days)
+        df = await self.get_data_with_lookback(symbol, start_date, end_date, lookback_days)
 
-        # Get price data
-        df = await self.data_reader.get_data(symbol, extended_start_date, end_date)
-
-        # Check for empty dataframe
         if df.empty:
-            return pd.DataFrame(index=pd.date_range(start_date, end_date), columns=['signal']).fillna(Signal.HOLD.value)
-
-        # Create a copy of the DataFrame to avoid SettingWithCopyWarning
-        df = df.copy()
+            return df
 
         # Calculate moving averages
-        df['short_ma'] = df['close'].rolling(window=self.short_window).mean()
-        df['medium_ma'] = df['close'].rolling(window=self.medium_window).mean()
-        df['long_ma'] = df['close'].rolling(window=self.long_window).mean()
+        df = self.calculate_moving_averages(df, [self.short_window, self.medium_window, self.long_window])
+
+        # Rename columns to match the original implementation
+        df.rename(columns={
+            f'ma_{self.short_window}': 'short_ma',
+            f'ma_{self.medium_window}': 'medium_ma',
+            f'ma_{self.long_window}': 'long_ma'
+        }, inplace=True)
 
         # Calculate RSI
-        df['price_change'] = df['close'].diff()
-        df['gain'] = df['price_change'].clip(lower=0)
-        df['loss'] = -df['price_change'].clip(upper=0)
+        df = self.calculate_rsi(df, self.rsi_period)
 
-        # Calculate average gain and loss using Wilder's smoothing
-        df['avg_gain'] = df['gain'].ewm(alpha=1/self.rsi_period, min_periods=self.rsi_period).mean()
-        df['avg_loss'] = df['loss'].ewm(alpha=1/self.rsi_period, min_periods=self.rsi_period).mean()
-
-        # Calculate RS and RSI
-        df['rs'] = df['avg_gain'] / df['avg_loss']
-        df['rsi'] = 100 - (100 / (1 + df['rs']))
-
-        # Calculate volume average
-        df['volume_avg'] = df['volume'].rolling(window=20).mean()
-        df['volume_ratio'] = df['volume'] / df['volume_avg']
+        # Calculate volume ratio
+        df = self.calculate_volume_ratio(df, 20)
 
         # Calculate trend strength (using standard deviation of returns)
         df['returns'] = df['close'].pct_change()
@@ -164,5 +150,4 @@ class CrossoverMomentumStrategy(MomentumStrategy):
         # Filter to the requested date range and include debug columns
         columns_to_return = ['signal', 'short_ma', 'medium_ma', 'long_ma', 'rsi', 'volume_ratio', 'trend_strength']
 
-        result = df.loc[df.index >= start_date, columns_to_return]
-        return result
+        return self.filter_to_date_range(df, start_date, columns_to_return)
