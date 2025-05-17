@@ -29,7 +29,16 @@ from strategies.top_breakout_strategy import TopBreakoutStrategy, RankingCriteri
 from backtester import BackTester
 
 
-def fetch_sp500_tickers(output_csv="data/SP500.csv"):
+def fetch_sp500_tickers(output_csv: str = "data/SP500.csv") -> None:
+    """
+    Fetch S&P 500 ticker symbols from Wikipedia and save them to a CSV file.
+
+    Args:
+        output_csv: Path to the output CSV file where tickers will be saved
+
+    Returns:
+        None: This function doesn't return a value but prints status messages
+    """
     url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
     try:
         import ssl
@@ -55,8 +64,16 @@ def fetch_sp500_tickers(output_csv="data/SP500.csv"):
     except Exception as e:
         print(f"❌ Failed to fetch S&P 500 tickers: {e}")
 
-def get_available_tickers():
-    """Get a list of all tickers that have data available."""
+def get_available_tickers() -> list[str]:
+    """
+    Get a list of all ticker symbols that have data available in the local storage.
+
+    This function scans the data directory for pickle files and extracts ticker symbols
+    from the filenames.
+
+    Returns:
+        A list of ticker symbols (strings) that have data available
+    """
     data_dir = Path(DataReader.DATA_PICKLE_LOCATION)
     tickers = []
 
@@ -71,16 +88,25 @@ def get_available_tickers():
     return tickers
 
 
-async def run_single_strategy_example(input_file=None, strategy_name="MovingAverageCrossover"):
+async def run_single_strategy_example(input_file: str = None, strategy_name: str = "MovingAverageCrossover") -> None:
     """
-    Run a single strategy backtest example.
+    Run a single strategy backtest example and generate performance reports and plots.
+
+    This function sets up a trading strategy based on the provided strategy name,
+    runs a backtest over a specified time period, and generates performance reports
+    and plots for the results.
 
     Args:
-        input_file (str, optional): Path to a CSV file containing tickers to process.
-                                   If not provided, all available tickers will be used.
-        strategy_name (str, optional): Name of the strategy to use. 
-                                      Options: "MovingAverageCrossover", "RSI", "RateOfChange", "BreakoutStrategy", "TopBreakout".
-                                      Default is "MovingAverageCrossover".
+        input_file: Path to a CSV file containing tickers to process.
+                   If not provided, all available tickers will be used.
+        strategy_name: Name of the strategy to use. 
+                      Options: "MovingAverageCrossover", "RSI", "RateOfChange", 
+                      "BreakoutStrategy", "TopBreakout".
+                      Default is "MovingAverageCrossover".
+
+    Returns:
+        None: This function doesn't return a value but generates output files
+              and prints status messages
     """
     # Create output directories if they don't exist
     ticker_plots_dir = Path("output/ticker-plots")
@@ -293,8 +319,18 @@ async def run_single_strategy_example(input_file=None, strategy_name="MovingAver
     return reports
 
 
-async def compare_strategies_example():
-    """Compare multiple strategies example for all available tickers."""
+async def compare_strategies_example() -> dict:
+    """
+    Compare multiple trading strategies across all available tickers.
+
+    This function creates instances of different trading strategies (Rate of Change,
+    Moving Average Crossover, and RSI), runs backtests for each strategy on all
+    available tickers, and generates performance reports and comparison plots.
+
+    Returns:
+        A dictionary mapping ticker symbols to strategy comparison results.
+        Each entry contains performance metrics for different strategies.
+    """
     # Initialize the data reader
     data_reader = DataReader()
 

@@ -8,6 +8,14 @@
 #
 # For licensing inquiries, contact: mansoorpervaizdev@gmail.com
 
+"""
+Data Reader Module for Market Data Management.
+
+This module provides functionality for loading, saving, and processing market data.
+It handles data retrieval from local storage and external APIs (Alpha Vantage),
+with capabilities for updating existing data with the latest information.
+"""
+
 import os
 import asyncio
 import json
@@ -32,10 +40,31 @@ logger = get_logger(__name__)
 
 
 class DataReader(DataReaderInterface):
+    """
+    A class for reading, processing, and managing market data.
+
+    This class implements the DataReaderInterface and provides methods for:
+    - Loading market data from local storage
+    - Downloading market data from external APIs
+    - Processing and converting market data to usable formats
+    - Updating existing data with the latest information
+    - Calculating statistics on market data
+
+    The class handles data caching to improve performance and manages error handling
+    for various data access scenarios.
+    """
+
     DATA_PICKLE_LOCATION = config.DATA_PICKLE_LOCATION
     DATA_JSON_LOCATION = config.DATA_JSON_LOCATION
 
-    def __init__(self, downloader: DownloaderInterface = None):
+    def __init__(self, downloader: DownloaderInterface = None) -> None:
+        """
+        Initialize the DataReader with an optional data downloader.
+
+        Args:
+            downloader: An optional implementation of DownloaderInterface for fetching market data.
+                        If not provided, an AsyncAlphaVantageDownloader will be used by default.
+        """
         self.alpha_vantage_downloader = downloader if downloader else AsyncAlphaVantageDownloader()
         self.loaded_data = None
         self.loaded_data_symbol = None
@@ -44,7 +73,20 @@ class DataReader(DataReaderInterface):
         os.makedirs(self.DATA_PICKLE_LOCATION, exist_ok=True)
         os.makedirs(self.DATA_JSON_LOCATION, exist_ok=True)
 
-    def _load_data(self, symbol):
+    def _load_data(self, symbol: str) -> pd.DataFrame:
+        """
+        Load market data for a given symbol from local storage.
+
+        Args:
+            symbol: The stock symbol to load data for (e.g., 'MSFT', 'AAPL')
+
+        Returns:
+            A pandas DataFrame containing the market data with standardized column names
+
+        Raises:
+            DataNotFoundError: If the data file for the symbol doesn't exist
+            DataProcessingError: If there's an error processing the data
+        """
         try:
             df = pd.read_pickle(os.path.join(self.DATA_PICKLE_LOCATION, symbol + ".pkl.gz"))
             logger.debug(f"Loaded data columns: {df.columns.tolist()}")
@@ -80,17 +122,33 @@ class DataReader(DataReaderInterface):
             logger.error(f"Error loading data for {symbol}: {str(e)}")
             raise DataProcessingError(f"Error loading data for {symbol}: {str(e)}") from e
 
-    def _save_data(self, symbol, symbol_data):
+    def _save_data(self, symbol: str, symbol_data: pd.DataFrame) -> None:
         """
-        Save the DataFrame to pickle format
+        Save the DataFrame to pickle format.
 
-        :param symbol: Stock symbol
-        :param symbol_data: DataFrame containing stock data
+        Args:
+            symbol: Stock symbol (e.g., 'MSFT', 'AAPL')
+            symbol_data: DataFrame containing stock data
         """
         file_path = os.path.join(self.DATA_PICKLE_LOCATION, symbol + ".pkl.gz")
         symbol_data.to_pickle(file_path)
 
-    async def _download_and_save_data(self, symbol):
+    async def _download_and_save_data(self, symbol: str) -> pd.DataFrame:
+        """
+        Download market data for a symbol from the API and save it to local storage.
+
+        Args:
+            symbol: The stock symbol to download data for (e.g., 'MSFT', 'AAPL')
+
+        Returns:
+            A pandas DataFrame containing the downloaded market data
+
+        Raises:
+            DataDownloadError: If there's an error downloading the data from the API
+            APIError: If there's an error with the API request
+            DataFormatError: If the downloaded data is empty or in an invalid format
+            DataProcessingError: If there's an error processing or saving the data
+        """
         try:
             symbol_data_dict = await self.alpha_vantage_downloader.download(symbol)
 
@@ -133,7 +191,21 @@ class DataReader(DataReaderInterface):
             logger.error(f"Unexpected error processing data for {symbol}: {str(e)}")
             raise DataProcessingError(f"Unexpected error processing data for {symbol}: {str(e)}") from e
 
-    async def _update_with_latest_data(self, symbol, last_date_in_df, previous_data):
+    async def _update_with_latest_data(self, symbol: str, last_date_in_df: date, previous_data: pd.DataFrame) -> pd.DataFrame:
+        """
+        Update existing market data with the latest data from the API.
+
+        Args:
+            symbol: The stock symbol to update data for (e.g., 'MSFT', 'AAPL')
+            last_date_in_df: The most recent date in the existing data
+            previous_data: The existing DataFrame containing historical market data
+
+        Returns:
+            A pandas DataFrame containing the updated market data (merged with previous data)
+
+        Raises:
+            DataProcessingError: If there's an error processing or saving the updated data
+        """
         try:
             symbol_data_dict = await self.alpha_vantage_downloader.download(symbol)
 
@@ -260,22 +332,25 @@ class DataReader(DataReaderInterface):
         dataframe.index.name = 'date'
         return dataframe
 
-    async def get_data(self, symbol, start_date, end_date):
+    async def get_data(self, symbol: str, start_date: date, end_date: date) -> pd.DataFrame:
         """
-        If data_manager file in local storage missing:
-            download full data_manager
-        else
-            load data_manager
-        if not end date in memory download compact data_manager and merge
-        if start date or end date not in data_manager return error
-        else return data_manager
+        Get market data for a symbol within a specified date range.
 
-        :param symbol: string for stock symbol
-        :param start_date: string for start date in format YYYY-MM-DD
-        :param end_date: string for end date in format YYYY-MM-DD
-        :return: pandas dataframe
-        :raises: DataNotFoundError if data cannot be found or downloaded
-                DataProcessingError if there's an error processing the data
+        This method handles loading data from local storage or downloading it if necessary.
+        It also updates existing data if the requested end date is more recent than the
+        available data.
+
+        Args:
+            symbol: Stock symbol (e.g., 'MSFT', 'AAPL')
+            start_date: Start date for the data range
+            end_date: End date for the data range
+
+        Returns:
+            A pandas DataFrame containing the market data for the specified date range
+
+        Raises:
+            DataNotFoundError: If data cannot be found or downloaded
+            DataProcessingError: If there's an error processing the data
         """
         try:
             # Check if we need to load data (different symbol or data not loaded yet)
@@ -340,19 +415,66 @@ class DataReader(DataReaderInterface):
             logger.error(f"Unexpected error getting data for {symbol}: {str(e)}")
             raise DataProcessingError(f"Unexpected error getting data for {symbol}: {str(e)}") from e
 
-    async def get_mean(self, symbol, start_date, end_date, field_name):
+    async def get_mean(self, symbol: str, start_date: date, end_date: date, field_name: str) -> float:
+        """
+        Calculate the mean value of a specific field over a date range.
+
+        Args:
+            symbol: Stock symbol (e.g., 'MSFT', 'AAPL')
+            start_date: Start date for the calculation
+            end_date: End date for the calculation
+            field_name: The field to calculate the mean for (e.g., 'open', 'close')
+
+        Returns:
+            The mean value of the specified field over the date range
+
+        Raises:
+            DataNotFoundError: If data cannot be found or downloaded
+            DataProcessingError: If there's an error processing the data
+        """
         field = FieldName(field_name)
         df = await self.get_data(symbol, start_date, end_date)
 
         return df[field.value].mean()
 
-    async def get_sma(self, symbol, current_date, number_of_days, field_name):
+    async def get_sma(self, symbol: str, current_date: date, number_of_days: int, field_name: str) -> float:
+        """
+        Calculate the Simple Moving Average (SMA) for a specific field.
+
+        Args:
+            symbol: Stock symbol (e.g., 'MSFT', 'AAPL')
+            current_date: The end date for the SMA calculation
+            number_of_days: The number of days to include in the SMA calculation
+            field_name: The field to calculate the SMA for (e.g., 'open', 'close')
+
+        Returns:
+            The Simple Moving Average value
+
+        Raises:
+            DataNotFoundError: If data cannot be found or downloaded
+            DataProcessingError: If there's an error processing the data
+        """
         field = FieldName(field_name)
         start_date = current_date - timedelta(days=number_of_days)
         df = await self.get_data(symbol, start_date, current_date)
         return df[field.value].mean()
 
-    async def get_value(self, symbol, for_date, for_field):
+    async def get_value(self, symbol: str, for_date: date, for_field: FieldName) -> float:
+        """
+        Get the value of a specific field for a specific date.
+
+        Args:
+            symbol: Stock symbol (e.g., 'MSFT', 'AAPL')
+            for_date: The date to get the value for
+            for_field: The field to get the value for (FieldName enum)
+
+        Returns:
+            The value of the specified field on the specified date, or None if no data exists
+
+        Raises:
+            DataNotFoundError: If data cannot be found or downloaded
+            DataProcessingError: If there's an error processing the data
+        """
         d = await self.get_data(symbol=symbol, start_date=for_date, end_date=for_date)
         if d.size == 0:
             return None
@@ -360,6 +482,12 @@ class DataReader(DataReaderInterface):
 
 
 class FieldName(Enum):
+    """
+    Enumeration of field names used in market data.
+
+    These field names are used to access specific columns in the market data DataFrame
+    and provide a standardized way to refer to different types of price and volume data.
+    """
     OPEN = "open"
     HIGH = "high"
     LOW = "low"

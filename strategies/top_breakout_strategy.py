@@ -169,7 +169,7 @@ class TopBreakoutStrategy(MomentumStrategy):
 
         return selected_symbols
 
-    async def generate_signals(self, symbol, start_date, end_date):
+    async def generate_signals(self, symbol: str, start_date: date, end_date: date) -> pd.DataFrame:
         """
         Generate buy/sell signals for the given symbol and date range.
 
@@ -177,12 +177,16 @@ class TopBreakoutStrategy(MomentumStrategy):
         top 10% based on our ranking criteria. We rebalance the selection weekly.
 
         Args:
-            symbol (str): The stock symbol.
-            start_date: The start date for the analysis.
-            end_date: The end date for the analysis.
+            symbol: The stock symbol (e.g., 'MSFT', 'AAPL')
+            start_date: The start date for the analysis
+            end_date: The end date for the analysis
 
         Returns:
-            pd.DataFrame: DataFrame with dates as index and signals as values.
+            pd.DataFrame: DataFrame with dates as index and signals as values
+
+        Raises:
+            DataNotFoundError: If data cannot be found or downloaded
+            DataProcessingError: If there's an error processing the data
         """
         # Create a date range for the analysis period
         date_range = pd.date_range(start=start_date, end=end_date)

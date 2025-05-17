@@ -37,8 +37,22 @@ class RateOfChangeStrategy(MomentumStrategy):
         self.threshold_pct = threshold_pct
         self.sell_threshold_pct = sell_threshold_pct
 
-    async def generate_signals(self, symbol, start_date, end_date):
-        """Generate buy/sell signals based on Rate of Change."""
+    async def generate_signals(self, symbol: str, start_date: date, end_date: date) -> pd.DataFrame:
+        """
+        Generate buy/sell signals based on Rate of Change.
+
+        Args:
+            symbol: The stock symbol (e.g., 'MSFT', 'AAPL')
+            start_date: The start date for the analysis
+            end_date: The end date for the analysis
+
+        Returns:
+            A pandas DataFrame with dates as index and signals as values
+
+        Raises:
+            DataNotFoundError: If data cannot be found or downloaded
+            DataProcessingError: If there's an error processing the data
+        """
         # Get data with lookback period
         lookback_days = self.n_days * 2
         df = await self.get_data_with_lookback(symbol, start_date, end_date, lookback_days)
@@ -77,8 +91,22 @@ class MovingAverageCrossoverStrategy(MomentumStrategy):
         self.short_window = short_window
         self.long_window = long_window
 
-    async def generate_signals(self, symbol, start_date, end_date):
-        """Generate buy/sell signals based on Moving Average Crossover."""
+    async def generate_signals(self, symbol: str, start_date: date, end_date: date) -> pd.DataFrame:
+        """
+        Generate buy/sell signals based on Moving Average Crossover.
+
+        Args:
+            symbol: The stock symbol (e.g., 'MSFT', 'AAPL')
+            start_date: The start date for the analysis
+            end_date: The end date for the analysis
+
+        Returns:
+            A pandas DataFrame with dates as index and signals as values
+
+        Raises:
+            DataNotFoundError: If data cannot be found or downloaded
+            DataProcessingError: If there's an error processing the data
+        """
         # Get data with lookback period
         lookback_days = self.long_window * 2
         df = await self.get_data_with_lookback(symbol, start_date, end_date, lookback_days)
@@ -154,8 +182,26 @@ class BreakoutStrategy(MomentumStrategy):
         self.use_trend_filter = use_trend_filter
         self.ma_period = ma_period
 
-    async def generate_signals(self, symbol, start_date, end_date):
-        """Generate buy/sell signals based on price breakouts with enhanced filters."""
+    async def generate_signals(self, symbol: str, start_date: date, end_date: date) -> pd.DataFrame:
+        """
+        Generate buy/sell signals based on price breakouts with enhanced filters.
+
+        This strategy identifies breakouts above recent highs and applies multiple filters
+        including volatility, volume confirmation, and trend analysis to improve signal quality.
+
+        Args:
+            symbol: The stock symbol (e.g., 'MSFT', 'AAPL')
+            start_date: The start date for the analysis
+            end_date: The end date for the analysis
+
+        Returns:
+            A pandas DataFrame with dates as index and signals as values, along with
+            additional columns for strategy components (high/low levels, ATR, volume ratio, etc.)
+
+        Raises:
+            DataNotFoundError: If data cannot be found or downloaded
+            DataProcessingError: If there's an error processing the data
+        """
         # Get data for a longer period to calculate highs and lows
         from datetime import timedelta
 
@@ -310,8 +356,27 @@ class RSIStrategy(MomentumStrategy):
         self.use_trend_filter = use_trend_filter
         self.ma_period = ma_period
 
-    async def generate_signals(self, symbol, start_date, end_date):
-        """Generate buy/sell signals based on RSI."""
+    async def generate_signals(self, symbol: str, start_date: date, end_date: date) -> pd.DataFrame:
+        """
+        Generate buy/sell signals based on RSI (Relative Strength Index).
+
+        This strategy generates buy signals when RSI crosses above the oversold threshold
+        and sell signals when RSI crosses below the overbought threshold. An optional
+        trend filter can be applied to only take buy signals when price is above a moving average.
+
+        Args:
+            symbol: The stock symbol (e.g., 'MSFT', 'AAPL')
+            start_date: The start date for the analysis
+            end_date: The end date for the analysis
+
+        Returns:
+            A pandas DataFrame with dates as index and signals as values, along with
+            the RSI values and moving average values if trend filter is enabled
+
+        Raises:
+            DataNotFoundError: If data cannot be found or downloaded
+            DataProcessingError: If there's an error processing the data
+        """
         # Determine how far back we need to go for calculations
         lookback_days = self.window * 3
         if self.use_trend_filter:
