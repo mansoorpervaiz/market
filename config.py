@@ -48,6 +48,13 @@ class Configuration:
         "DATA_JSON_LOCATION", 
         os.path.join(DATA_ROOT_DIR, "daily", "json")
     )
+    DATA_PARQUET_LOCATION: str = os.environ.get(
+        "DATA_PARQUET_LOCATION", 
+        os.path.join(DATA_ROOT_DIR, "daily", "parquet")
+    )
+    # Cache configuration
+    CACHE_MAX_SIZE: int = int(os.environ.get("CACHE_MAX_SIZE", "100"))
+    CACHE_TTL: int = int(os.environ.get("CACHE_TTL", "3600"))  # Time-to-live in seconds
 
     # Logging configuration
     LOGS_DIR: str = os.environ.get("LOGS_DIR", "logs")
@@ -99,6 +106,7 @@ class Configuration:
         """Ensure that all required directories exist."""
         Path(self.DATA_PICKLE_LOCATION).mkdir(parents=True, exist_ok=True)
         Path(self.DATA_JSON_LOCATION).mkdir(parents=True, exist_ok=True)
+        Path(self.DATA_PARQUET_LOCATION).mkdir(parents=True, exist_ok=True)
         Path(self.LOGS_DIR).mkdir(parents=True, exist_ok=True)
 
     def get_log_level(self, level_name: str) -> int:

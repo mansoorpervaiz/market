@@ -19,11 +19,14 @@ with capabilities for updating existing data with the latest information.
 import os
 import asyncio
 import json
+import functools
 from datetime import datetime, date, timedelta
 from pathlib import Path
+from typing import Dict, Tuple, Optional, Any
 
 import pandas as pd
 from enum import Enum
+from cachetools import TTLCache, cached
 
 from data_manager.alpha_vantage import AsyncAlphaVantageDownloader
 from data_manager.exceptions import (
@@ -50,12 +53,27 @@ class DataReader(DataReaderInterface):
     - Updating existing data with the latest information
     - Calculating statistics on market data
 
+    Optimizations:
+    - Efficient storage: Uses parquet format with snappy compression for better performance
+      and smaller file sizes compared to pickle files
+    - Caching: Implements TTL-based caching for frequently accessed data to reduce disk I/O
+    - Indexing: Optimizes parquet files with proper indexing for efficient date range queries
+    - Backward compatibility: Maintains pickle format for compatibility with existing code
+
     The class handles data caching to improve performance and manages error handling
     for various data access scenarios.
     """
 
     DATA_PICKLE_LOCATION = config.DATA_PICKLE_LOCATION
     DATA_JSON_LOCATION = config.DATA_JSON_LOCATION
+    DATA_PARQUET_LOCATION = config.DATA_PARQUET_LOCATION
+
+    # Create a cache for storing frequently accessed data
+    # The cache is keyed by (symbol, start_date, end_date) tuples
+    _data_cache = TTLCache(
+        maxsize=config.CACHE_MAX_SIZE,
+        ttl=config.CACHE_TTL
+    )
 
     def __init__(self, downloader: DownloaderInterface = None) -> None:
         """
@@ -72,10 +90,11 @@ class DataReader(DataReaderInterface):
         # Ensure data directories exist
         os.makedirs(self.DATA_PICKLE_LOCATION, exist_ok=True)
         os.makedirs(self.DATA_JSON_LOCATION, exist_ok=True)
+        os.makedirs(self.DATA_PARQUET_LOCATION, exist_ok=True)
 
-    def _load_data(self, symbol: str) -> pd.DataFrame:
+    def _load_data_parquet(self, symbol: str) -> pd.DataFrame:
         """
-        Load market data for a given symbol from local storage.
+        Load market data for a given symbol from parquet storage.
 
         Args:
             symbol: The stock symbol to load data for (e.g., 'MSFT', 'AAPL')
@@ -88,8 +107,40 @@ class DataReader(DataReaderInterface):
             DataProcessingError: If there's an error processing the data
         """
         try:
-            df = pd.read_pickle(os.path.join(self.DATA_PICKLE_LOCATION, symbol + ".pkl.gz"))
-            logger.debug(f"Loaded data columns: {df.columns.tolist()}")
+            file_path = os.path.join(self.DATA_PARQUET_LOCATION, f"{symbol}.parquet")
+            df = pd.read_parquet(file_path)
+            logger.debug(f"Loaded parquet data for {symbol}, columns: {df.columns.tolist()}")
+
+            # Ensure index is datetime.date for consistency
+            if not all(isinstance(idx, date) for idx in df.index):
+                df.index = pd.to_datetime(df.index).date
+
+            return df
+        except FileNotFoundError:
+            logger.warning(f"Parquet file for {symbol} not found")
+            raise DataNotFoundError(f"Data file for symbol {symbol} not found")
+        except Exception as e:
+            logger.error(f"Error loading parquet data for {symbol}: {str(e)}")
+            raise DataProcessingError(f"Error loading data for {symbol}: {str(e)}") from e
+
+    def _load_data_pickle(self, symbol: str) -> pd.DataFrame:
+        """
+        Load market data for a given symbol from pickle storage (legacy format).
+
+        Args:
+            symbol: The stock symbol to load data for (e.g., 'MSFT', 'AAPL')
+
+        Returns:
+            A pandas DataFrame containing the market data with standardized column names
+
+        Raises:
+            DataNotFoundError: If the data file for the symbol doesn't exist
+            DataProcessingError: If there's an error processing the data
+        """
+        try:
+            file_path = os.path.join(self.DATA_PICKLE_LOCATION, f"{symbol}.pkl.gz")
+            df = pd.read_pickle(file_path)
+            logger.debug(f"Loaded pickle data for {symbol}, columns: {df.columns.tolist()}")
 
             # Rename columns to match what the code expects
             if '4. close' in df.columns and 'close' not in df.columns:
@@ -114,24 +165,122 @@ class DataReader(DataReaderInterface):
                 if FieldName.VOLUME.value in df.columns:
                     df[FieldName.VOLUME.value] = pd.to_numeric(df[FieldName.VOLUME.value], errors='coerce').astype('Int64')
 
+            # Ensure index is datetime.date for consistency
+            if not all(isinstance(idx, date) for idx in df.index):
+                df.index = pd.to_datetime(df.index).date
+
             return df
         except FileNotFoundError:
-            logger.warning(f"File {symbol} not found")
+            logger.warning(f"Pickle file for {symbol} not found")
             raise DataNotFoundError(f"Data file for symbol {symbol} not found")
+        except Exception as e:
+            logger.error(f"Error loading pickle data for {symbol}: {str(e)}")
+            raise DataProcessingError(f"Error loading data for {symbol}: {str(e)}") from e
+
+    def _load_data(self, symbol: str) -> pd.DataFrame:
+        """
+        Load market data for a given symbol from local storage.
+
+        This method tries to load from parquet first, then falls back to pickle if needed.
+
+        Args:
+            symbol: The stock symbol to load data for (e.g., 'MSFT', 'AAPL')
+
+        Returns:
+            A pandas DataFrame containing the market data with standardized column names
+
+        Raises:
+            DataNotFoundError: If the data file for the symbol doesn't exist
+            DataProcessingError: If there's an error processing the data
+        """
+        try:
+            # Try to load from parquet first
+            try:
+                return self._load_data_parquet(symbol)
+            except DataNotFoundError:
+                # If parquet file doesn't exist, try pickle
+                logger.info(f"Parquet file for {symbol} not found, trying pickle")
+                df = self._load_data_pickle(symbol)
+
+                # Save to parquet for future use
+                self._save_data_parquet(symbol, df)
+                logger.info(f"Converted pickle data for {symbol} to parquet format")
+
+                return df
+        except DataNotFoundError:
+            # Re-raise if neither format is found
+            raise
         except Exception as e:
             logger.error(f"Error loading data for {symbol}: {str(e)}")
             raise DataProcessingError(f"Error loading data for {symbol}: {str(e)}") from e
 
-    def _save_data(self, symbol: str, symbol_data: pd.DataFrame) -> None:
+    def _save_data_parquet(self, symbol: str, symbol_data: pd.DataFrame) -> None:
         """
-        Save the DataFrame to pickle format.
+        Save the DataFrame to parquet format with optimized settings and indexing.
+
+        This method saves data with proper indexing on the date column to improve
+        query performance for historical data lookups.
 
         Args:
             symbol: Stock symbol (e.g., 'MSFT', 'AAPL')
             symbol_data: DataFrame containing stock data
         """
-        file_path = os.path.join(self.DATA_PICKLE_LOCATION, symbol + ".pkl.gz")
-        symbol_data.to_pickle(file_path)
+        try:
+            # Create a copy to avoid modifying the original
+            df = symbol_data.copy()
+
+            # Ensure the index is named for better querying
+            if df.index.name is None:
+                df.index.name = 'date'
+
+            # Sort by date for optimal querying
+            df = df.sort_index()
+
+            # Save with compression and row group optimization
+            file_path = os.path.join(self.DATA_PARQUET_LOCATION, f"{symbol}.parquet")
+            df.to_parquet(
+                file_path,
+                compression='snappy',  # Good balance of compression and speed
+                index=True,
+                engine='pyarrow',
+                # Set row group size for optimal querying by date ranges
+                # This helps with date range filtering performance
+                row_group_size=100  # Adjust based on typical query patterns
+            )
+            logger.debug(f"Saved parquet data for {symbol} with optimized indexing")
+        except Exception as e:
+            logger.error(f"Error saving parquet data for {symbol}: {str(e)}")
+            raise DataProcessingError(f"Error saving parquet data for {symbol}: {str(e)}") from e
+
+    def _save_data_pickle(self, symbol: str, symbol_data: pd.DataFrame) -> None:
+        """
+        Save the DataFrame to pickle format (legacy format).
+
+        Args:
+            symbol: Stock symbol (e.g., 'MSFT', 'AAPL')
+            symbol_data: DataFrame containing stock data
+        """
+        try:
+            file_path = os.path.join(self.DATA_PICKLE_LOCATION, f"{symbol}.pkl.gz")
+            symbol_data.to_pickle(file_path)
+            logger.debug(f"Saved pickle data for {symbol}")
+        except Exception as e:
+            logger.error(f"Error saving pickle data for {symbol}: {str(e)}")
+            raise DataProcessingError(f"Error saving pickle data for {symbol}: {str(e)}") from e
+
+    def _save_data(self, symbol: str, symbol_data: pd.DataFrame) -> None:
+        """
+        Save the DataFrame to both parquet and pickle formats.
+
+        Args:
+            symbol: Stock symbol (e.g., 'MSFT', 'AAPL')
+            symbol_data: DataFrame containing stock data
+        """
+        # Save to parquet (primary format)
+        self._save_data_parquet(symbol, symbol_data)
+
+        # Also save to pickle for backward compatibility
+        self._save_data_pickle(symbol, symbol_data)
 
     async def _download_and_save_data(self, symbol: str) -> pd.DataFrame:
         """
@@ -332,9 +481,24 @@ class DataReader(DataReaderInterface):
         dataframe.index.name = 'date'
         return dataframe
 
-    async def get_data(self, symbol: str, start_date: date, end_date: date) -> pd.DataFrame:
+    # Cache key function for the get_data method
+    def _get_data_cache_key(self, symbol: str, start_date: date, end_date: date) -> Tuple[str, date, date]:
         """
-        Get market data for a symbol within a specified date range.
+        Generate a cache key for the get_data method.
+
+        Args:
+            symbol: Stock symbol
+            start_date: Start date for the data range
+            end_date: End date for the data range
+
+        Returns:
+            A tuple that can be used as a cache key
+        """
+        return (symbol, start_date, end_date)
+
+    async def _get_data_uncached(self, symbol: str, start_date: date, end_date: date) -> pd.DataFrame:
+        """
+        Get market data for a symbol within a specified date range (uncached version).
 
         This method handles loading data from local storage or downloading it if necessary.
         It also updates existing data if the requested end date is more recent than the
@@ -414,6 +578,44 @@ class DataReader(DataReaderInterface):
         except Exception as e:
             logger.error(f"Unexpected error getting data for {symbol}: {str(e)}")
             raise DataProcessingError(f"Unexpected error getting data for {symbol}: {str(e)}") from e
+
+    async def get_data(self, symbol: str, start_date: date, end_date: date) -> pd.DataFrame:
+        """
+        Get market data for a symbol within a specified date range.
+
+        This method handles loading data from local storage or downloading it if necessary.
+        It also updates existing data if the requested end date is more recent than the
+        available data. Results are cached for improved performance.
+
+        Args:
+            symbol: Stock symbol (e.g., 'MSFT', 'AAPL')
+            start_date: Start date for the data range
+            end_date: End date for the data range
+
+        Returns:
+            A pandas DataFrame containing the market data for the specified date range
+
+        Raises:
+            DataNotFoundError: If data cannot be found or downloaded
+            DataProcessingError: If there's an error processing the data
+        """
+        # Generate cache key
+        cache_key = self._get_data_cache_key(symbol, start_date, end_date)
+
+        # Check if data is in cache
+        if cache_key in self._data_cache:
+            logger.debug(f"Cache hit for {symbol} from {start_date} to {end_date}")
+            return self._data_cache[cache_key]
+
+        # Not in cache, get the data
+        logger.debug(f"Cache miss for {symbol} from {start_date} to {end_date}")
+        result = await self._get_data_uncached(symbol, start_date, end_date)
+
+        # Store in cache
+        self._data_cache[cache_key] = result
+        logger.debug(f"Cached data for {symbol} from {start_date} to {end_date}")
+
+        return result
 
     async def get_mean(self, symbol: str, start_date: date, end_date: date, field_name: str) -> float:
         """

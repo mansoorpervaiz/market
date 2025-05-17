@@ -122,6 +122,34 @@ The project provides two main data ingesters:
    ```
    This script fetches intraday stock data for Russell 1000 constituents.
 
+### Data Storage and Optimization
+
+The project implements several optimizations for efficient data storage and retrieval:
+
+1. **Parquet Storage Format**:
+   - Market data is stored in the Apache Parquet format, which offers:
+     - Columnar storage for efficient querying
+     - Snappy compression for reduced storage size
+     - Better performance compared to pickle files
+   - Legacy pickle format is maintained for backward compatibility
+
+2. **Caching System**:
+   - Implements a TTL (Time-To-Live) cache for frequently accessed data
+   - Configurable cache size and expiration time
+   - Significantly reduces disk I/O for repeated queries
+
+3. **Indexing for Historical Data**:
+   - Optimized indexing on date columns for efficient date range queries
+   - Row group optimization for better query performance
+   - Sorted data for faster filtering operations
+
+To take advantage of these optimizations, make sure you have the required dependencies installed:
+```bash
+pip install pyarrow cachetools
+```
+
+These dependencies are included in the requirements.txt file.
+
 ### Configuration
 
 1. **Database Configuration**:
