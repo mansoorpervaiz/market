@@ -60,16 +60,80 @@ class RateOfChangeStrategy(MomentumStrategy):
         if df.empty:
             return df
 
-        # Calculate Rate of Change
-        df.loc[:, 'roc'] = df['close'].pct_change(self.n_days) * 100
+        # Prepare data by calculating Rate of Change
+        df = self._prepare_data(df)
 
         # Generate signals
-        df.loc[:, 'signal'] = Signal.HOLD.value
-        df.loc[df['roc'] >= self.threshold_pct, 'signal'] = Signal.BUY.value
-        df.loc[df['roc'] <= self.sell_threshold_pct, 'signal'] = Signal.SELL.value
+        df = self._generate_signals(df)
 
         # Filter to the requested date range
         return self.filter_to_date_range(df, start_date, ['signal'])
+
+    def _prepare_data(self, df):
+        """
+        Prepare data by calculating Rate of Change.
+
+        Args:
+            df (pd.DataFrame): DataFrame with price data.
+
+        Returns:
+            pd.DataFrame: DataFrame with Rate of Change calculated.
+        """
+        # Calculate Rate of Change
+        df.loc[:, 'roc'] = df['close'].pct_change(self.n_days) * 100
+
+        # Initialize signal column
+        df.loc[:, 'signal'] = Signal.HOLD.value
+
+        return df
+
+    def _generate_signals(self, df):
+        """
+        Generate buy and sell signals based on Rate of Change thresholds.
+
+        Args:
+            df (pd.DataFrame): DataFrame with Rate of Change calculated.
+
+        Returns:
+            pd.DataFrame: DataFrame with signals applied.
+        """
+        # Generate buy signals
+        df = self._generate_buy_signals(df)
+
+        # Generate sell signals
+        df = self._generate_sell_signals(df)
+
+        return df
+
+    def _generate_buy_signals(self, df):
+        """
+        Generate buy signals when ROC exceeds the buy threshold.
+
+        Args:
+            df (pd.DataFrame): DataFrame with Rate of Change calculated.
+
+        Returns:
+            pd.DataFrame: DataFrame with buy signals applied.
+        """
+        # Buy when ROC exceeds threshold
+        df.loc[df['roc'] >= self.threshold_pct, 'signal'] = Signal.BUY.value
+
+        return df
+
+    def _generate_sell_signals(self, df):
+        """
+        Generate sell signals when ROC falls below the sell threshold.
+
+        Args:
+            df (pd.DataFrame): DataFrame with Rate of Change calculated.
+
+        Returns:
+            pd.DataFrame: DataFrame with sell signals applied.
+        """
+        # Sell when ROC falls below sell threshold
+        df.loc[df['roc'] <= self.sell_threshold_pct, 'signal'] = Signal.SELL.value
+
+        return df
 
 
 class MovingAverageCrossoverStrategy(MomentumStrategy):
@@ -114,6 +178,25 @@ class MovingAverageCrossoverStrategy(MomentumStrategy):
         if df.empty:
             return df
 
+        # Prepare data by calculating moving averages
+        df = self._prepare_data(df)
+
+        # Generate signals
+        df = self._generate_signals(df)
+
+        # Filter to the requested date range
+        return self.filter_to_date_range(df, start_date, ['signal'])
+
+    def _prepare_data(self, df):
+        """
+        Prepare data by calculating moving averages.
+
+        Args:
+            df (pd.DataFrame): DataFrame with price data.
+
+        Returns:
+            pd.DataFrame: DataFrame with calculated moving averages.
+        """
         # Calculate moving averages
         df = self.calculate_moving_averages(df, [self.short_window, self.long_window])
 
@@ -123,21 +206,60 @@ class MovingAverageCrossoverStrategy(MomentumStrategy):
             f'ma_{self.long_window}': 'long_ma'
         }, inplace=True)
 
-        # Generate signals
+        # Initialize signal column
         df.loc[:, 'signal'] = Signal.HOLD.value
 
+        return df
+
+    def _generate_signals(self, df):
+        """
+        Generate buy and sell signals based on moving average crossovers.
+
+        Args:
+            df (pd.DataFrame): DataFrame with calculated moving averages.
+
+        Returns:
+            pd.DataFrame: DataFrame with signals applied.
+        """
+        # Generate buy signals
+        df = self._generate_buy_signals(df)
+
+        # Generate sell signals
+        df = self._generate_sell_signals(df)
+
+        return df
+
+    def _generate_buy_signals(self, df):
+        """
+        Generate buy signals when short MA crosses above long MA.
+
+        Args:
+            df (pd.DataFrame): DataFrame with calculated moving averages.
+
+        Returns:
+            pd.DataFrame: DataFrame with buy signals applied.
+        """
         # Buy when short MA crosses above long MA
-        df.loc[(df['short_ma'] > df['long_ma']) & 
-               (df['short_ma'].shift(1) <= df['long_ma'].shift(1)), 
-               'signal'] = Signal.BUY.value
+        buy_condition = (df['short_ma'] > df['long_ma']) & (df['short_ma'].shift(1) <= df['long_ma'].shift(1))
+        df.loc[buy_condition, 'signal'] = Signal.BUY.value
 
+        return df
+
+    def _generate_sell_signals(self, df):
+        """
+        Generate sell signals when short MA crosses below long MA.
+
+        Args:
+            df (pd.DataFrame): DataFrame with calculated moving averages.
+
+        Returns:
+            pd.DataFrame: DataFrame with sell signals applied.
+        """
         # Sell when short MA crosses below long MA
-        df.loc[(df['short_ma'] < df['long_ma']) & 
-               (df['short_ma'].shift(1) >= df['long_ma'].shift(1)), 
-               'signal'] = Signal.SELL.value
+        sell_condition = (df['short_ma'] < df['long_ma']) & (df['short_ma'].shift(1) >= df['long_ma'].shift(1))
+        df.loc[sell_condition, 'signal'] = Signal.SELL.value
 
-        # Filter to the requested date range
-        return self.filter_to_date_range(df, start_date, ['signal'])
+        return df
 
 
 class BreakoutStrategy(MomentumStrategy):
@@ -219,21 +341,38 @@ class BreakoutStrategy(MomentumStrategy):
         # Create a copy of the DataFrame to avoid SettingWithCopyWarning
         df = df.copy()
 
+        # Prepare data by calculating all necessary indicators
+        df = self._prepare_data(df)
+
+        # Generate buy signals
+        df = self._generate_buy_signals(df)
+
+        # Generate sell signals
+        df = self._generate_sell_signals(df)
+
+        # Filter to the requested date range and include debug columns
+        columns_to_return = self._get_columns_to_return()
+
+        result = df.loc[df.index >= start_date, columns_to_return]
+        return result
+
+    def _prepare_data(self, df):
+        """
+        Prepare data by calculating all necessary indicators.
+
+        Args:
+            df (pd.DataFrame): DataFrame with price data.
+
+        Returns:
+            pd.DataFrame: DataFrame with calculated indicators.
+        """
         # Calculate rolling high and low
         df.loc[:, 'high_20d'] = df['high'].rolling(window=self.high_period).max()
         df.loc[:, 'low_10d'] = df['low'].rolling(window=self.low_period).min()
 
         # Calculate ATR for volatility filter
         if self.use_volatility_filter:
-            df.loc[:, 'tr'] = np.maximum(
-                df['high'] - df['low'],
-                np.maximum(
-                    abs(df['high'] - df['close'].shift(1)),
-                    abs(df['low'] - df['close'].shift(1))
-                )
-            )
-            df.loc[:, 'atr'] = df['tr'].rolling(window=self.atr_period).mean()
-            df.loc[:, 'atr_ratio'] = df['atr'] / df['close'] * 100  # ATR as percentage of price
+            df = self._calculate_atr(df)
 
         # Calculate volume average for confirmation
         if self.use_volume_confirmation:
@@ -244,9 +383,43 @@ class BreakoutStrategy(MomentumStrategy):
         if self.use_trend_filter:
             df.loc[:, 'ma_100d'] = df['close'].rolling(window=self.ma_period).mean()
 
-        # Generate signals
+        # Initialize signal column
         df.loc[:, 'signal'] = Signal.HOLD.value
 
+        return df
+
+    def _calculate_atr(self, df):
+        """
+        Calculate Average True Range (ATR) for volatility filtering.
+
+        Args:
+            df (pd.DataFrame): DataFrame with price data.
+
+        Returns:
+            pd.DataFrame: DataFrame with ATR calculations added.
+        """
+        df.loc[:, 'tr'] = np.maximum(
+            df['high'] - df['low'],
+            np.maximum(
+                abs(df['high'] - df['close'].shift(1)),
+                abs(df['low'] - df['close'].shift(1))
+            )
+        )
+        df.loc[:, 'atr'] = df['tr'].rolling(window=self.atr_period).mean()
+        df.loc[:, 'atr_ratio'] = df['atr'] / df['close'] * 100  # ATR as percentage of price
+
+        return df
+
+    def _generate_buy_signals(self, df):
+        """
+        Generate buy signals based on breakout conditions and filters.
+
+        Args:
+            df (pd.DataFrame): DataFrame with calculated indicators.
+
+        Returns:
+            pd.DataFrame: DataFrame with buy signals applied.
+        """
         # Buy condition: price breaks above the high_period high
         buy_condition = (df['close'] > df['high_20d'].shift(1))
 
@@ -265,55 +438,103 @@ class BreakoutStrategy(MomentumStrategy):
         # Apply buy signals
         df.loc[buy_condition, 'signal'] = Signal.BUY.value
 
-        # Process trailing stops
+        return df
+
+    def _generate_sell_signals(self, df):
+        """
+        Generate sell signals based on trailing stop or traditional breakout conditions.
+
+        Args:
+            df (pd.DataFrame): DataFrame with calculated indicators.
+
+        Returns:
+            pd.DataFrame: DataFrame with sell signals applied.
+        """
         if self.use_trailing_stop:
-            # Initialize position tracking columns with vectorized operations
-            df.loc[:, 'position_state'] = 0  # 0: not in position, 1: in position
-            df.loc[:, 'highest_since_buy'] = np.nan
-            df.loc[:, 'trailing_stop'] = np.nan
-
-            # Process signals and update position state
-            for i in range(1, len(df)):
-                # Get previous state
-                prev_position_state = df.iloc[i-1]['position_state']
-                current_signal = df.iloc[i-1]['signal']
-
-                # Update position state based on previous signal
-                if current_signal == Signal.BUY.value:
-                    # Enter position
-                    df.iloc[i, df.columns.get_loc('position_state')] = 1
-                    df.iloc[i, df.columns.get_loc('highest_since_buy')] = df.iloc[i]['close']
-                    df.iloc[i, df.columns.get_loc('trailing_stop')] = df.iloc[i]['close'] * (1 - self.trailing_stop_pct/100)
-                elif current_signal == Signal.SELL.value:
-                    # Exit position
-                    df.iloc[i, df.columns.get_loc('position_state')] = 0
-                    # Reset tracking variables
-                    df.iloc[i, df.columns.get_loc('highest_since_buy')] = np.nan
-                    df.iloc[i, df.columns.get_loc('trailing_stop')] = np.nan
-                else:
-                    # Maintain previous state
-                    df.iloc[i, df.columns.get_loc('position_state')] = prev_position_state
-
-                    # If in position, update highest price and trailing stop
-                    if prev_position_state == 1:
-                        # Update highest price since buy
-                        prev_highest = df.iloc[i-1]['highest_since_buy']
-                        current_price = df.iloc[i]['close']
-                        new_highest = max(prev_highest, current_price) if not np.isnan(prev_highest) else current_price
-                        df.iloc[i, df.columns.get_loc('highest_since_buy')] = new_highest
-
-                        # Update trailing stop
-                        df.iloc[i, df.columns.get_loc('trailing_stop')] = new_highest * (1 - self.trailing_stop_pct/100)
-
-            # Generate sell signals based on trailing stop (only when in position)
-            trailing_stop_condition = (df['position_state'] == 1) & (df['close'] < df['trailing_stop'])
-            df.loc[trailing_stop_condition, 'signal'] = Signal.SELL.value
+            df = self._apply_trailing_stop(df)
         else:
             # Traditional sell when price breaks below the low_period low
             sell_condition = (df['close'] < df['low_10d'].shift(1))
             df.loc[sell_condition, 'signal'] = Signal.SELL.value
 
-        # Filter to the requested date range and include debug columns
+        return df
+
+    def _apply_trailing_stop(self, df):
+        """
+        Apply trailing stop logic for position management and sell signals.
+
+        Args:
+            df (pd.DataFrame): DataFrame with calculated indicators.
+
+        Returns:
+            pd.DataFrame: DataFrame with trailing stop logic applied.
+        """
+        # Initialize position tracking columns with vectorized operations
+        df.loc[:, 'position_state'] = 0  # 0: not in position, 1: in position
+        df.loc[:, 'highest_since_buy'] = np.nan
+        df.loc[:, 'trailing_stop'] = np.nan
+
+        # Process signals and update position state
+        for i in range(1, len(df)):
+            # Get previous state
+            prev_position_state = df.iloc[i-1]['position_state']
+            current_signal = df.iloc[i-1]['signal']
+
+            # Update position state based on previous signal
+            if current_signal == Signal.BUY.value:
+                # Enter position
+                df.iloc[i, df.columns.get_loc('position_state')] = 1
+                df.iloc[i, df.columns.get_loc('highest_since_buy')] = df.iloc[i]['close']
+                df.iloc[i, df.columns.get_loc('trailing_stop')] = df.iloc[i]['close'] * (1 - self.trailing_stop_pct/100)
+            elif current_signal == Signal.SELL.value:
+                # Exit position
+                df.iloc[i, df.columns.get_loc('position_state')] = 0
+                # Reset tracking variables
+                df.iloc[i, df.columns.get_loc('highest_since_buy')] = np.nan
+                df.iloc[i, df.columns.get_loc('trailing_stop')] = np.nan
+            else:
+                # Maintain previous state
+                df.iloc[i, df.columns.get_loc('position_state')] = prev_position_state
+
+                # If in position, update highest price and trailing stop
+                if prev_position_state == 1:
+                    df = self._update_trailing_stop(df, i)
+
+        # Generate sell signals based on trailing stop (only when in position)
+        trailing_stop_condition = (df['position_state'] == 1) & (df['close'] < df['trailing_stop'])
+        df.loc[trailing_stop_condition, 'signal'] = Signal.SELL.value
+
+        return df
+
+    def _update_trailing_stop(self, df, i):
+        """
+        Update trailing stop values based on current price.
+
+        Args:
+            df (pd.DataFrame): DataFrame with position tracking.
+            i (int): Current index in the DataFrame.
+
+        Returns:
+            pd.DataFrame: DataFrame with updated trailing stop values.
+        """
+        # Update highest price since buy
+        prev_highest = df.iloc[i-1]['highest_since_buy']
+        current_price = df.iloc[i]['close']
+        new_highest = max(prev_highest, current_price) if not np.isnan(prev_highest) else current_price
+        df.iloc[i, df.columns.get_loc('highest_since_buy')] = new_highest
+
+        # Update trailing stop
+        df.iloc[i, df.columns.get_loc('trailing_stop')] = new_highest * (1 - self.trailing_stop_pct/100)
+
+        return df
+
+    def _get_columns_to_return(self):
+        """
+        Get the list of columns to include in the result DataFrame.
+
+        Returns:
+            list: List of column names to include in the result.
+        """
         columns_to_return = ['signal', 'high_20d', 'low_10d']
 
         # Add debug columns based on enabled features
@@ -326,8 +547,7 @@ class BreakoutStrategy(MomentumStrategy):
         if self.use_trailing_stop:
             columns_to_return.extend(['highest_since_buy', 'trailing_stop', 'position_state'])
 
-        result = df.loc[df.index >= start_date, columns_to_return]
-        return result
+        return columns_to_return
 
 
 class RSIStrategy(MomentumStrategy):
@@ -377,33 +597,91 @@ class RSIStrategy(MomentumStrategy):
             DataNotFoundError: If data cannot be found or downloaded
             DataProcessingError: If there's an error processing the data
         """
-        # Determine how far back we need to go for calculations
-        lookback_days = self.window * 3
-        if self.use_trend_filter:
-            # Need more historical data for the moving average calculation
-            lookback_days = max(lookback_days, self.ma_period * 2)
-
         # Get data with lookback period
+        lookback_days = self._calculate_lookback_days()
         df = await self.get_data_with_lookback(symbol, start_date, end_date, lookback_days)
 
         if df.empty:
             return df
 
-        # Calculate RSI
-        df = self.calculate_rsi(df, self.window)
+        # Prepare data by calculating indicators
+        df = self._prepare_data(df)
 
-        # Check for NaN-only RSI output
         if df['rsi'].isna().all():
             return pd.DataFrame(index=pd.date_range(start_date, end_date), columns=['signal']).fillna(Signal.HOLD.value)
+
+        # Generate signals
+        df = self._generate_signals(df)
+
+        # Filter to the requested date range and include debug columns
+        columns_to_return = self._get_columns_to_return(df)
+
+        return self.filter_to_date_range(df, start_date, columns_to_return)
+
+    def _calculate_lookback_days(self):
+        """
+        Calculate the required lookback days for data retrieval.
+
+        Returns:
+            int: Number of days to look back for data retrieval.
+        """
+        lookback_days = self.window * 3
+        if self.use_trend_filter:
+            # Need more historical data for the moving average calculation
+            lookback_days = max(lookback_days, self.ma_period * 2)
+        return lookback_days
+
+    def _prepare_data(self, df):
+        """
+        Prepare data by calculating RSI and moving average if needed.
+
+        Args:
+            df (pd.DataFrame): DataFrame with price data.
+
+        Returns:
+            pd.DataFrame: DataFrame with calculated indicators.
+        """
+        # Calculate RSI
+        df = self.calculate_rsi(df, self.window)
 
         # Calculate moving average for trend filter if enabled
         if self.use_trend_filter:
             df = self.calculate_moving_averages(df, [self.ma_period])
             df.rename(columns={f'ma_{self.ma_period}': 'ma'}, inplace=True)
 
-        # Generate signals
+        # Initialize signal column
         df.loc[:, 'signal'] = Signal.HOLD.value
 
+        return df
+
+    def _generate_signals(self, df):
+        """
+        Generate buy and sell signals based on RSI conditions.
+
+        Args:
+            df (pd.DataFrame): DataFrame with calculated indicators.
+
+        Returns:
+            pd.DataFrame: DataFrame with signals applied.
+        """
+        # Generate buy signals
+        df = self._generate_buy_signals(df)
+
+        # Generate sell signals
+        df = self._generate_sell_signals(df)
+
+        return df
+
+    def _generate_buy_signals(self, df):
+        """
+        Generate buy signals based on RSI crossing above oversold threshold.
+
+        Args:
+            df (pd.DataFrame): DataFrame with calculated indicators.
+
+        Returns:
+            pd.DataFrame: DataFrame with buy signals applied.
+        """
         # Buy when RSI crosses above oversold threshold
         buy_condition = (df['rsi'] > self.oversold) & (df['rsi'].shift(1) <= self.oversold)
 
@@ -414,13 +692,36 @@ class RSIStrategy(MomentumStrategy):
 
         df.loc[buy_condition, 'signal'] = Signal.BUY.value
 
+        return df
+
+    def _generate_sell_signals(self, df):
+        """
+        Generate sell signals based on RSI crossing below overbought threshold.
+
+        Args:
+            df (pd.DataFrame): DataFrame with calculated indicators.
+
+        Returns:
+            pd.DataFrame: DataFrame with sell signals applied.
+        """
         # Sell when RSI crosses below overbought threshold
         sell_condition = (df['rsi'] < self.overbought) & (df['rsi'].shift(1) >= self.overbought)
         df.loc[sell_condition, 'signal'] = Signal.SELL.value
 
-        # Filter to the requested date range and include debug columns
+        return df
+
+    def _get_columns_to_return(self, df):
+        """
+        Get the list of columns to include in the result DataFrame.
+
+        Args:
+            df (pd.DataFrame): DataFrame with calculated indicators.
+
+        Returns:
+            list: List of column names to include in the result.
+        """
         columns_to_return = ['signal', 'rsi']
         if self.use_trend_filter and 'ma' in df.columns:
             columns_to_return.append('ma')
 
-        return self.filter_to_date_range(df, start_date, columns_to_return)
+        return columns_to_return

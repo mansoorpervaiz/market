@@ -76,6 +76,28 @@ class CrossoverMomentumStrategy(MomentumStrategy):
         if df.empty:
             return df
 
+        # Prepare data by calculating all necessary indicators
+        df = self._prepare_data(df)
+
+        # Generate buy and sell signals
+        df = self._generate_buy_signals(df)
+        df = self._generate_sell_signals(df)
+
+        # Filter to the requested date range and include debug columns
+        columns_to_return = ['signal', 'short_ma', 'medium_ma', 'long_ma', 'rsi', 'volume_ratio', 'trend_strength']
+
+        return self.filter_to_date_range(df, start_date, columns_to_return)
+
+    def _prepare_data(self, df):
+        """
+        Prepare data by calculating all necessary indicators.
+
+        Args:
+            df (pd.DataFrame): DataFrame with price data.
+
+        Returns:
+            pd.DataFrame: DataFrame with calculated indicators.
+        """
         # Calculate moving averages
         df = self.calculate_moving_averages(df, [self.short_window, self.medium_window, self.long_window])
 
@@ -99,7 +121,18 @@ class CrossoverMomentumStrategy(MomentumStrategy):
         # Initialize signal column
         df['signal'] = Signal.HOLD.value
 
-        # Generate buy signals
+        return df
+
+    def _generate_buy_signals(self, df):
+        """
+        Generate buy signals based on multiple conditions.
+
+        Args:
+            df (pd.DataFrame): DataFrame with calculated indicators.
+
+        Returns:
+            pd.DataFrame: DataFrame with buy signals applied.
+        """
         # 1. Short MA crosses above Medium MA
         short_above_medium = (df['short_ma'] > df['medium_ma']) & (df['short_ma'].shift(1) <= df['medium_ma'].shift(1))
 
@@ -131,7 +164,18 @@ class CrossoverMomentumStrategy(MomentumStrategy):
         df.loc[medium_buy & ~strong_buy, 'signal'] = Signal.BUY.value
         df.loc[weak_buy & ~medium_buy & ~strong_buy, 'signal'] = Signal.BUY.value
 
-        # Generate sell signals
+        return df
+
+    def _generate_sell_signals(self, df):
+        """
+        Generate sell signals based on multiple conditions.
+
+        Args:
+            df (pd.DataFrame): DataFrame with calculated indicators.
+
+        Returns:
+            pd.DataFrame: DataFrame with sell signals applied.
+        """
         # 1. Short MA crosses below Medium MA
         short_below_medium = (df['short_ma'] < df['medium_ma']) & (df['short_ma'].shift(1) >= df['medium_ma'].shift(1))
 
@@ -147,7 +191,4 @@ class CrossoverMomentumStrategy(MomentumStrategy):
         # Apply sell signals
         df.loc[sell_signal, 'signal'] = Signal.SELL.value
 
-        # Filter to the requested date range and include debug columns
-        columns_to_return = ['signal', 'short_ma', 'medium_ma', 'long_ma', 'rsi', 'volume_ratio', 'trend_strength']
-
-        return self.filter_to_date_range(df, start_date, columns_to_return)
+        return df
