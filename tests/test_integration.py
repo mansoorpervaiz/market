@@ -15,6 +15,7 @@ import numpy as np
 
 from data_manager.data_reader import DataReader, FieldName
 from data_manager.alpha_vantage import AsyncAlphaVantageDownloader
+from data_manager.exceptions import DataNotFoundError
 from strategies.momentum import MomentumStrategy, Signal
 from backtester import BackTester
 from config import Configuration, config
@@ -77,7 +78,7 @@ class TestIntegration(unittest.TestCase):
         # Set up the mocks
         mock_load.side_effect = [
             # First call: raise DataNotFoundError to trigger download
-            Exception("Data not found"),
+            DataNotFoundError("Data not found"),
             # Subsequent calls: return the sample data
             self.sample_df
         ]

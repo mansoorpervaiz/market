@@ -103,7 +103,11 @@ class Configuration:
 
     def get_log_level(self, level_name: str) -> int:
         """Convert a log level name to its corresponding integer value."""
-        return getattr(logging, level_name)
+        try:
+            return getattr(logging, level_name)
+        except AttributeError:
+            # Return INFO as default for invalid log levels
+            return logging.INFO
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert the configuration to a dictionary."""
