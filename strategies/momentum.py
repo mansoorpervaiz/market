@@ -10,40 +10,10 @@
 
 import pandas as pd
 import numpy as np
-from enum import Enum
-from interfaces.business_logic.strategy_interface import StrategyInterface
+from datetime import timedelta
+
+from strategies.base_strategy import BaseStrategy, IndicatorMixin, Signal, MomentumStrategy
 from interfaces.data_access.data_reader_interface import DataReaderInterface
-
-class Signal(Enum):
-    BUY = 1
-    SELL = -1
-    HOLD = 0
-
-class MomentumStrategy(StrategyInterface):
-    """Base class for momentum trading strategies."""
-
-    def __init__(self, data_reader: DataReaderInterface):
-        """
-        Initialize the strategy with a data reader.
-
-        Args:
-            data_reader: An instance of a class implementing DataReaderInterface to access financial data.
-        """
-        self.data_reader = data_reader
-
-    async def generate_signals(self, symbol, start_date, end_date):
-        """
-        Generate trading signals for the given symbol and date range.
-
-        Args:
-            symbol (str): The stock symbol.
-            start_date: The start date for the analysis.
-            end_date: The end date for the analysis.
-
-        Returns:
-            pd.DataFrame: DataFrame with dates as index and signals as values.
-        """
-        raise NotImplementedError("Subclasses must implement this method")
 
 
 class RateOfChangeStrategy(MomentumStrategy):
@@ -69,15 +39,12 @@ class RateOfChangeStrategy(MomentumStrategy):
 
     async def generate_signals(self, symbol, start_date, end_date):
         """Generate buy/sell signals based on Rate of Change."""
-        # Get data for a longer period to calculate ROC
-        from datetime import timedelta
-        extended_start_date = start_date - timedelta(days=self.n_days * 2)
+        # Get data with lookback period
+        lookback_days = self.n_days * 2
+        df = await self.get_data_with_lookback(symbol, start_date, end_date, lookback_days)
 
-        # Get price data
-        df = await self.data_reader.get_data(symbol, extended_start_date, end_date)
-
-        # Create a copy of the DataFrame to avoid SettingWithCopyWarning
-        df = df.copy()
+        if df.empty:
+            return df
 
         # Calculate Rate of Change
         df.loc[:, 'roc'] = df['close'].pct_change(self.n_days) * 100
@@ -88,8 +55,7 @@ class RateOfChangeStrategy(MomentumStrategy):
         df.loc[df['roc'] <= self.sell_threshold_pct, 'signal'] = Signal.SELL.value
 
         # Filter to the requested date range
-        result = df.loc[df.index >= start_date, ['signal']]
-        return result
+        return self.filter_to_date_range(df, start_date, ['signal'])
 
 
 class MovingAverageCrossoverStrategy(MomentumStrategy):
@@ -113,19 +79,21 @@ class MovingAverageCrossoverStrategy(MomentumStrategy):
 
     async def generate_signals(self, symbol, start_date, end_date):
         """Generate buy/sell signals based on Moving Average Crossover."""
-        # Get data for a longer period to calculate moving averages
-        from datetime import timedelta
-        extended_start_date = start_date - timedelta(days=self.long_window * 2)
+        # Get data with lookback period
+        lookback_days = self.long_window * 2
+        df = await self.get_data_with_lookback(symbol, start_date, end_date, lookback_days)
 
-        # Get price data
-        df = await self.data_reader.get_data(symbol, extended_start_date, end_date)
-
-        # Create a copy of the DataFrame to avoid SettingWithCopyWarning
-        df = df.copy()
+        if df.empty:
+            return df
 
         # Calculate moving averages
-        df.loc[:, 'short_ma'] = df['close'].rolling(window=self.short_window).mean()
-        df.loc[:, 'long_ma'] = df['close'].rolling(window=self.long_window).mean()
+        df = self.calculate_moving_averages(df, [self.short_window, self.long_window])
+
+        # Rename columns to match the original implementation
+        df.rename(columns={
+            f'ma_{self.short_window}': 'short_ma',
+            f'ma_{self.long_window}': 'long_ma'
+        }, inplace=True)
 
         # Generate signals
         df.loc[:, 'signal'] = Signal.HOLD.value
@@ -141,8 +109,7 @@ class MovingAverageCrossoverStrategy(MomentumStrategy):
                'signal'] = Signal.SELL.value
 
         # Filter to the requested date range
-        result = df.loc[df.index >= start_date, ['signal']]
-        return result
+        return self.filter_to_date_range(df, start_date, ['signal'])
 
 
 class BreakoutStrategy(MomentumStrategy):
@@ -345,39 +312,20 @@ class RSIStrategy(MomentumStrategy):
 
     async def generate_signals(self, symbol, start_date, end_date):
         """Generate buy/sell signals based on RSI."""
-        # Get data for a longer period to calculate RSI and MA if needed
-        from datetime import timedelta
-
         # Determine how far back we need to go for calculations
         lookback_days = self.window * 3
         if self.use_trend_filter:
             # Need more historical data for the moving average calculation
             lookback_days = max(lookback_days, self.ma_period * 2)
 
-        extended_start_date = start_date - timedelta(days=lookback_days)
+        # Get data with lookback period
+        df = await self.get_data_with_lookback(symbol, start_date, end_date, lookback_days)
 
-        # Get price data
-        df = await self.data_reader.get_data(symbol, extended_start_date, end_date)
-
-        # Check for empty dataframe
         if df.empty:
-            return pd.DataFrame(index=pd.date_range(start_date, end_date), columns=['signal']).fillna(Signal.HOLD.value)
-
-        # Create a copy of the DataFrame to avoid SettingWithCopyWarning
-        df = df.copy()
+            return df
 
         # Calculate RSI
-        df.loc[:, 'price_change'] = df['close'].diff()
-        df.loc[:, 'gain'] = df['price_change'].clip(lower=0)
-        df.loc[:, 'loss'] = -df['price_change'].clip(upper=0)
-
-        # Calculate average gain and loss using Wilder's smoothing
-        df.loc[:, 'avg_gain'] = df['gain'].ewm(alpha=1/self.window, min_periods=self.window).mean()
-        df.loc[:, 'avg_loss'] = df['loss'].ewm(alpha=1/self.window, min_periods=self.window).mean()
-
-        # Calculate RS and RSI
-        df.loc[:, 'rs'] = df['avg_gain'] / df['avg_loss']
-        df.loc[:, 'rsi'] = 100 - (100 / (1 + df['rs']))
+        df = self.calculate_rsi(df, self.window)
 
         # Check for NaN-only RSI output
         if df['rsi'].isna().all():
@@ -385,7 +333,8 @@ class RSIStrategy(MomentumStrategy):
 
         # Calculate moving average for trend filter if enabled
         if self.use_trend_filter:
-            df.loc[:, 'ma'] = df['close'].rolling(window=self.ma_period).mean()
+            df = self.calculate_moving_averages(df, [self.ma_period])
+            df.rename(columns={f'ma_{self.ma_period}': 'ma'}, inplace=True)
 
         # Generate signals
         df.loc[:, 'signal'] = Signal.HOLD.value
@@ -409,5 +358,4 @@ class RSIStrategy(MomentumStrategy):
         if self.use_trend_filter and 'ma' in df.columns:
             columns_to_return.append('ma')
 
-        result = df.loc[df.index >= start_date, columns_to_return]
-        return result
+        return self.filter_to_date_range(df, start_date, columns_to_return)

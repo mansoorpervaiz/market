@@ -14,7 +14,7 @@ import os
 from datetime import datetime, timedelta
 from enum import Enum
 
-from strategies.momentum import MomentumStrategy, Signal
+from strategies.base_strategy import MomentumStrategy, Signal
 from data_manager.symbol_manager import SymbolManager
 
 class RankingCriteria(Enum):
@@ -89,26 +89,25 @@ class TopBreakoutStrategy(MomentumStrategy):
 
         for symbol in symbols:
             try:
-                # Get data for the symbol
-                df = await self.data_reader.get_data(symbol, start_date, current_date)
+                # Get data with lookback period
+                df = await self.get_data_with_lookback(symbol, start_date, current_date, self.avg_period * 2)
 
                 if df.empty:
                     continue
 
-                # Calculate 20-day average price and volume
-                # Create a copy of the DataFrame to avoid SettingWithCopyWarning
-                df = df.copy()
+                # Calculate moving averages for price
+                df = self.calculate_moving_averages(df, [self.avg_period])
+                df.rename(columns={f'ma_{self.avg_period}': 'avg_price'}, inplace=True)
 
-                # Use .loc to set values to avoid SettingWithCopyWarning
-                df.loc[:, 'avg_price'] = df['close'].rolling(window=self.avg_period).mean()
-                df.loc[:, 'avg_volume'] = df['volume'].rolling(window=self.avg_period).mean()
+                # Calculate volume ratio
+                df = self.calculate_volume_ratio(df, self.avg_period)
 
                 # Get the latest data point
                 latest = df.iloc[-1]
 
                 # Calculate metrics
                 pct_above_avg = (latest['close'] / latest['avg_price'] - 1) * 100
-                volume_ratio = latest['volume'] / latest['avg_volume']
+                volume_ratio = latest['volume_ratio']
 
                 # Calculate combined score (equal weighting)
                 combined_score = (pct_above_avg + volume_ratio) / 2

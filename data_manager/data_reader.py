@@ -87,7 +87,8 @@ class DataReader(DataReaderInterface):
         :param symbol: Stock symbol
         :param symbol_data: DataFrame containing stock data
         """
-        symbol_data.to_pickle(os.path.join(self.DATA_PICKLE_LOCATION, symbol + ".pkl.gz"))
+        file_path = os.path.join(self.DATA_PICKLE_LOCATION, symbol + ".pkl.gz")
+        symbol_data.to_pickle(file_path)
 
     async def _download_and_save_data(self, symbol):
         try:
@@ -114,7 +115,7 @@ class DataReader(DataReaderInterface):
             # Only save if we have valid data
             if not dataframe.empty:
                 try:
-                    self._save_data(symbol=symbol, symbol_data=dataframe)
+                    self._save_data(symbol, dataframe)
                     logger.info(f"Saved pickle data for {symbol}")
                 except (IOError, PermissionError) as e:
                     logger.error(f"Error saving pickle data for {symbol}: {str(e)}")
@@ -173,7 +174,7 @@ class DataReader(DataReaderInterface):
                 if not df_with_new_data.empty:
                     updated_data = pd.concat([previous_data, df_with_new_data]).drop_duplicates().sort_index()
                     try:
-                        self._save_data(symbol=symbol, symbol_data=updated_data)
+                        self._save_data(symbol, updated_data)
                         logger.info(f"Updated pickle data for {symbol}")
                     except (IOError, PermissionError) as e:
                         logger.error(f"Error saving updated data for {symbol}: {str(e)}")
@@ -193,80 +194,70 @@ class DataReader(DataReaderInterface):
             logger.error(f"Unexpected error updating data for {symbol}: {str(e)}")
             raise DataProcessingError(f"Unexpected error updating data for {symbol}: {str(e)}") from e
 
-    def _convert_dict_to_dataframe(self, symbol_data):
+    def _convert_dict_to_dataframe(self, symbol_data, include_adjusted_close=True):
+        """
+        Convert dictionary data from API response to a pandas DataFrame.
+
+        Args:
+            symbol_data: Dictionary containing stock data from API
+            include_adjusted_close: Boolean indicating whether to include adjusted close in the result
+
+        Returns:
+            pandas DataFrame with stock data
+        """
+        # Determine columns based on whether adjusted close is included
+        columns = [
+            FieldName.OPEN.value,
+            FieldName.HIGH.value,
+            FieldName.LOW.value,
+            FieldName.CLOSE.value,
+            FieldName.VOLUME.value
+        ]
+
+        if include_adjusted_close:
+            columns.insert(4, FieldName.ADJUSTED_CLOSE.value)
+
         # Check if the response contains the expected data
         if not symbol_data:
             logger.error("Empty response data received")
             # Return an empty DataFrame with the expected columns
-            return pd.DataFrame(columns=[
-                FieldName.OPEN.value,
-                FieldName.HIGH.value,
-                FieldName.LOW.value,
-                FieldName.CLOSE.value,
-                FieldName.ADJUSTED_CLOSE.value,
-                FieldName.VOLUME.value
-            ])
+            return pd.DataFrame(columns=columns)
 
         if "Time Series (Daily)" not in symbol_data:
             logger.error(f"Invalid data format: 'Time Series (Daily)' not found in response")
             # Log the keys that are present to help with debugging
             logger.debug(f"Available keys in response: {list(symbol_data.keys())}")
             # Return an empty DataFrame with the expected columns
-            return pd.DataFrame(columns=[
-                FieldName.OPEN.value,
-                FieldName.HIGH.value,
-                FieldName.LOW.value,
-                FieldName.CLOSE.value,
-                FieldName.ADJUSTED_CLOSE.value,
-                FieldName.VOLUME.value
-            ])
+            return pd.DataFrame(columns=columns)
 
-        # dataframe = pd.DataFrame.from_dict(data_manager["Time Series (Daily)"], orient='index')
+        # Create DataFrame from dictionary
         dataframe = pd.DataFrame.from_dict(symbol_data["Time Series (Daily)"], dtype=float, orient='index')
-        dataframe.rename(
-            columns={
-                '1. open': FieldName.OPEN.value,
-                '2. high': FieldName.HIGH.value,
-                '3. low': FieldName.LOW.value,
-                '4. close': FieldName.CLOSE.value,
-                '5. adjusted close': FieldName.ADJUSTED_CLOSE.value,
-                '6. volume': FieldName.VOLUME.value
-            },
-            inplace=True)
 
+        # Define column mappings based on whether adjusted close is included
+        column_mappings = {
+            '1. open': FieldName.OPEN.value,
+            '2. high': FieldName.HIGH.value,
+            '3. low': FieldName.LOW.value,
+            '4. close': FieldName.CLOSE.value,
+        }
+
+        if include_adjusted_close:
+            column_mappings['5. adjusted close'] = FieldName.ADJUSTED_CLOSE.value
+            column_mappings['6. volume'] = FieldName.VOLUME.value
+            column_mappings['7. dividend amount'] = 'dividend_amount'
+            column_mappings['8. split coefficient'] = 'split_coefficient'
+        else:
+            column_mappings['5. volume'] = FieldName.VOLUME.value
+
+        dataframe.rename(columns=column_mappings, inplace=True)
+
+        # Convert volume to integer if it exists
         if 'volume' in dataframe.columns:
             dataframe['volume'] = dataframe['volume'].astype(int)
+
+        # Convert index to datetime.date
         dataframe.index = pd.to_datetime(dataframe.index).date
-        return dataframe
-
-    def _convert_dict_to_dataframe_simple(self, symbol_data):
-        # Check if the response contains the expected data
-        if not symbol_data or "Time Series (Daily)" not in symbol_data:
-            logger.error(f"Error processing symbol: 'Time Series (Daily)' not found in response")
-            # Return an empty DataFrame with the expected columns
-            return pd.DataFrame(columns=[
-                FieldName.OPEN.value,
-                FieldName.HIGH.value,
-                FieldName.LOW.value,
-                FieldName.CLOSE.value,
-                FieldName.VOLUME.value
-            ])
-
-        # dataframe = pd.DataFrame.from_dict(data_manager["Time Series (Daily)"], orient='index')
-        dataframe = pd.DataFrame.from_dict(symbol_data["Time Series (Daily)"], dtype=float, orient='index')
-        dataframe.rename(
-            columns={
-                '1. open': FieldName.OPEN.value,
-                '2. high': FieldName.HIGH.value,
-                '3. low': FieldName.LOW.value,
-                '4. close': FieldName.CLOSE.value,
-                '5. volume': FieldName.VOLUME.value
-            },
-            inplace=True)
-
-        if 'volume' in dataframe.columns:
-            dataframe['volume'] = dataframe['volume'].astype(int)
-        dataframe.index = pd.to_datetime(dataframe.index).date
+        dataframe.index.name = 'date'
         return dataframe
 
     async def get_data(self, symbol, start_date, end_date):
@@ -296,7 +287,7 @@ class DataReader(DataReaderInterface):
                     # did not find data on local disk, downloading and saving it
                     logger.info(f"Data for {symbol} not found locally. Downloading from Alpha Vantage...")
                     try:
-                        dataframe = await self._download_and_save_data(symbol=symbol)
+                        dataframe = await self._download_and_save_data(symbol)
                         logger.info(f"Downloaded and saved data for {symbol}")
                     except (DataDownloadError, APIError) as e:
                         logger.error(f"Failed to download data for {symbol}: {str(e)}")
@@ -365,7 +356,7 @@ class DataReader(DataReaderInterface):
         d = await self.get_data(symbol=symbol, start_date=for_date, end_date=for_date)
         if d.size == 0:
             return None
-        return d[for_field.value].iloc[0]
+        return d.loc[for_date, for_field.value]
 
 
 class FieldName(Enum):
