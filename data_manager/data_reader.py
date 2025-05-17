@@ -36,7 +36,7 @@ class DataReader(DataReaderInterface):
     DATA_JSON_LOCATION = config.DATA_JSON_LOCATION
 
     def __init__(self, downloader: DownloaderInterface = None):
-        self.avDownloader = downloader if downloader else AsyncAlphaVantageDownloader()
+        self.alpha_vantage_downloader = downloader if downloader else AsyncAlphaVantageDownloader()
         self.loaded_data = None
         self.loaded_data_symbol = None
 
@@ -91,7 +91,7 @@ class DataReader(DataReaderInterface):
 
     async def _download_and_save_data(self, symbol):
         try:
-            symbol_data_dict = await self.avDownloader.download(symbol)
+            symbol_data_dict = await self.alpha_vantage_downloader.download(symbol)
 
             # Save the original JSON response
             if symbol_data_dict:
@@ -134,7 +134,7 @@ class DataReader(DataReaderInterface):
 
     async def _update_with_latest_data(self, symbol, last_date_in_df, previous_data):
         try:
-            symbol_data_dict = await self.avDownloader.download(symbol)
+            symbol_data_dict = await self.alpha_vantage_downloader.download(symbol)
 
             # Save the original JSON response
             if symbol_data_dict:

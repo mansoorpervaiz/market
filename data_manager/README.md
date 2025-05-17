@@ -87,7 +87,7 @@ logger = get_logger(__name__)
 
 ```python
 try:
-    symbol_data_dict = await self.avDownloader.download(symbol)
+    symbol_data_dict = await self.alpha_vantage_downloader.download(symbol)
     # Process data...
 except RateLimitError as e:
     logger.warning(f"Rate limit exceeded for {symbol}: {e}")
