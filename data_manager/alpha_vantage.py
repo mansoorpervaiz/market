@@ -18,8 +18,9 @@ import time
 from io import StringIO
 
 from config import config
+from interfaces.data_access.downloader_interface import DownloaderInterface
 
-class AsyncAlphaVantageDownloader:
+class AsyncAlphaVantageDownloader(DownloaderInterface):
     BASE_URL = config.ALPHA_VANTAGE_BASE_URL
     API_KEY = config.ALPHA_VANTAGE_API_KEY
     RETRIES = config.ALPHA_VANTAGE_RETRIES

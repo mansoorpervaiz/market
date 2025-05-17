@@ -11,21 +11,23 @@
 import pandas as pd
 import numpy as np
 from enum import Enum
+from interfaces.business_logic.strategy_interface import StrategyInterface
+from interfaces.data_access.data_reader_interface import DataReaderInterface
 
 class Signal(Enum):
     BUY = 1
     SELL = -1
     HOLD = 0
 
-class MomentumStrategy:
+class MomentumStrategy(StrategyInterface):
     """Base class for momentum trading strategies."""
 
-    def __init__(self, data_reader):
+    def __init__(self, data_reader: DataReaderInterface):
         """
         Initialize the strategy with a data reader.
 
         Args:
-            data_reader: An instance of DataReader to access financial data.
+            data_reader: An instance of a class implementing DataReaderInterface to access financial data.
         """
         self.data_reader = data_reader
 
@@ -50,12 +52,12 @@ class RateOfChangeStrategy(MomentumStrategy):
     Buy when the price has increased more than X% over the past N days.
     """
 
-    def __init__(self, data_reader, n_days=14, threshold_pct=5, sell_threshold_pct=-3):
+    def __init__(self, data_reader: DataReaderInterface, n_days=14, threshold_pct=5, sell_threshold_pct=-3):
         """
         Initialize the ROC strategy.
 
         Args:
-            data_reader: An instance of DataReader.
+            data_reader: An instance of a class implementing DataReaderInterface.
             n_days (int): Number of days to calculate ROC over.
             threshold_pct (float): Percentage threshold for buy signals.
             sell_threshold_pct (float): Percentage threshold for sell signals.
@@ -96,12 +98,12 @@ class MovingAverageCrossoverStrategy(MomentumStrategy):
     Buy when a short-term moving average crosses above a long-term moving average.
     """
 
-    def __init__(self, data_reader, short_window=20, long_window=50):
+    def __init__(self, data_reader: DataReaderInterface, short_window=20, long_window=50):
         """
         Initialize the Moving Average Crossover strategy.
 
         Args:
-            data_reader: An instance of DataReader.
+            data_reader: An instance of a class implementing DataReaderInterface.
             short_window (int): Window for the short-term moving average.
             long_window (int): Window for the long-term moving average.
         """
@@ -150,7 +152,7 @@ class BreakoutStrategy(MomentumStrategy):
     Exit using tighter stop-loss or trailing exit logic instead of waiting for 10-day low.
     """
 
-    def __init__(self, data_reader, high_period=20, low_period=10, 
+    def __init__(self, data_reader: DataReaderInterface, high_period=20, low_period=10, 
                  use_volatility_filter=True, atr_period=14, atr_threshold=1.0,
                  use_volume_confirmation=True, volume_threshold=1.2,
                  use_trailing_stop=True, trailing_stop_pct=2.0,
@@ -159,7 +161,7 @@ class BreakoutStrategy(MomentumStrategy):
         Initialize the enhanced Breakout strategy.
 
         Args:
-            data_reader: An instance of DataReader.
+            data_reader: An instance of a class implementing DataReaderInterface.
             high_period (int): Period for calculating the high price (default: 20 days).
             low_period (int): Period for calculating the low price (default: 10 days).
             use_volatility_filter (bool): Whether to use ATR volatility filter.
@@ -322,12 +324,12 @@ class RSIStrategy(MomentumStrategy):
     With trend filter option: only take RSI signals when price > 200-day moving average.
     """
 
-    def __init__(self, data_reader, window=14, oversold=30, overbought=70, use_trend_filter=True, ma_period=200):
+    def __init__(self, data_reader: DataReaderInterface, window=14, oversold=30, overbought=70, use_trend_filter=True, ma_period=200):
         """
         Initialize the RSI strategy.
 
         Args:
-            data_reader: An instance of DataReader.
+            data_reader: An instance of a class implementing DataReaderInterface.
             window (int): Window for RSI calculation.
             oversold (int): Threshold for oversold condition.
             overbought (int): Threshold for overbought condition.
