@@ -92,12 +92,14 @@ class DataReader(DataReaderInterface):
         os.makedirs(self.DATA_JSON_LOCATION, exist_ok=True)
         os.makedirs(self.DATA_PARQUET_LOCATION, exist_ok=True)
 
-    def _load_data_parquet(self, symbol: str) -> pd.DataFrame:
+    def _load_data_parquet(self, symbol: str, columns=None, filters=None) -> pd.DataFrame:
         """
         Load market data for a given symbol from parquet storage.
 
         Args:
             symbol: The stock symbol to load data for (e.g., 'MSFT', 'AAPL')
+            columns: List of columns to load (None loads all columns)
+            filters: Filters to apply when loading data (e.g., date range)
 
         Returns:
             A pandas DataFrame containing the market data with standardized column names
@@ -108,7 +110,7 @@ class DataReader(DataReaderInterface):
         """
         try:
             file_path = os.path.join(self.DATA_PARQUET_LOCATION, f"{symbol}.parquet")
-            df = pd.read_parquet(file_path)
+            df = pd.read_parquet(file_path, columns=columns, filters=filters)
             logger.debug(f"Loaded parquet data for {symbol}, columns: {df.columns.tolist()}")
 
             # Ensure index is datetime.date for consistency
@@ -177,7 +179,7 @@ class DataReader(DataReaderInterface):
             logger.error(f"Error loading pickle data for {symbol}: {str(e)}")
             raise DataProcessingError(f"Error loading data for {symbol}: {str(e)}") from e
 
-    def _load_data(self, symbol: str) -> pd.DataFrame:
+    def _load_data(self, symbol: str, columns=None, filters=None) -> pd.DataFrame:
         """
         Load market data for a given symbol from local storage.
 
@@ -185,6 +187,8 @@ class DataReader(DataReaderInterface):
 
         Args:
             symbol: The stock symbol to load data for (e.g., 'MSFT', 'AAPL')
+            columns: List of columns to load (None loads all columns)
+            filters: Filters to apply when loading data (e.g., date range)
 
         Returns:
             A pandas DataFrame containing the market data with standardized column names
@@ -196,7 +200,7 @@ class DataReader(DataReaderInterface):
         try:
             # Try to load from parquet first
             try:
-                return self._load_data_parquet(symbol)
+                return self._load_data_parquet(symbol, columns=columns, filters=filters)
             except DataNotFoundError:
                 # If parquet file doesn't exist, try pickle
                 logger.info(f"Parquet file for {symbol} not found, trying pickle")
@@ -205,6 +209,20 @@ class DataReader(DataReaderInterface):
                 # Save to parquet for future use
                 self._save_data_parquet(symbol, df)
                 logger.info(f"Converted pickle data for {symbol} to parquet format")
+
+                # Apply filters if provided
+                if filters:
+                    for column, op, value in filters:
+                        if op == '>=':
+                            df = df[df[column] >= value]
+                        elif op == '<=':
+                            df = df[df[column] <= value]
+                        elif op == '==':
+                            df = df[df[column] == value]
+
+                # Select columns if provided
+                if columns:
+                    df = df[columns]
 
                 return df
         except DataNotFoundError:
@@ -323,9 +341,9 @@ class DataReader(DataReaderInterface):
             if not dataframe.empty:
                 try:
                     self._save_data(symbol, dataframe)
-                    logger.info(f"Saved pickle data for {symbol}")
+                    logger.info(f"Saved data for {symbol}")
                 except (IOError, PermissionError) as e:
-                    logger.error(f"Error saving pickle data for {symbol}: {str(e)}")
+                    logger.error(f"Error saving data for {symbol}: {str(e)}")
                     raise DataProcessingError(f"Error saving data for {symbol}: {str(e)}") from e
             else:
                 logger.error(f"Error processing {symbol}: 'Time Series (Daily)' data is empty or invalid")
@@ -339,6 +357,11 @@ class DataReader(DataReaderInterface):
         except Exception as e:
             logger.error(f"Unexpected error processing data for {symbol}: {str(e)}")
             raise DataProcessingError(f"Unexpected error processing data for {symbol}: {str(e)}") from e
+        finally:
+            # Ensure resources are properly cleaned up
+            await self.alpha_vantage_downloader.close_session()
+            # Clear any temporary data that might be in memory
+            symbol_data_dict = None
 
     async def _update_with_latest_data(self, symbol: str, last_date_in_df: date, previous_data: pd.DataFrame) -> pd.DataFrame:
         """
@@ -414,6 +437,11 @@ class DataReader(DataReaderInterface):
         except Exception as e:
             logger.error(f"Unexpected error updating data for {symbol}: {str(e)}")
             raise DataProcessingError(f"Unexpected error updating data for {symbol}: {str(e)}") from e
+        finally:
+            # Ensure resources are properly cleaned up
+            await self.alpha_vantage_downloader.close_session()
+            # Clear any temporary data that might be in memory
+            symbol_data_dict = None
 
     def _convert_dict_to_dataframe(self, symbol_data, include_adjusted_close=True):
         """
@@ -520,58 +548,77 @@ class DataReader(DataReaderInterface):
             # Check if we need to load data (different symbol or data not loaded yet)
             if self.loaded_data_symbol != symbol or self.loaded_data is None:
                 try:
-                    dataframe = self._load_data(symbol)
-                    logger.info(f"Loaded data for {symbol} from local storage")
+                    # Create date filters to only load the data we need
+                    filters = [
+                        ('date', '>=', start_date),
+                        ('date', '<=', end_date)
+                    ]
+
+                    # Load only the data for the requested date range
+                    dataframe = self._load_data(symbol, filters=filters)
+                    logger.info(f"Loaded filtered data for {symbol} from local storage")
+
+                    # Check if we need to update with latest data
+                    try:
+                        # Load just the max date to check if we need to update
+                        max_date_df = self._load_data(symbol, columns=['close'])
+                        last_date_in_df = max_date_df.index.max() if not max_date_df.empty else None
+
+                        # Only try to update if we have a valid last_date_in_df and it's before end_date
+                        if last_date_in_df is not None and last_date_in_df < end_date:
+                            try:
+                                # Only update the data we don't have yet
+                                new_data = await self._update_with_latest_data(
+                                    symbol=symbol,
+                                    last_date_in_df=last_date_in_df,
+                                    previous_data=max_date_df
+                                )
+
+                                # Filter the new data to only include dates we need
+                                mask = (new_data.index >= start_date) & (new_data.index <= end_date)
+                                new_data_filtered = new_data.loc[mask]
+
+                                # Combine with existing data if needed
+                                if not new_data_filtered.empty:
+                                    dataframe = pd.concat([dataframe, new_data_filtered]).drop_duplicates().sort_index()
+                            except Exception as e:
+                                # Log the error but continue with the data we have
+                                logger.warning(f"Failed to update data for {symbol}: {str(e)}")
+                    except Exception as e:
+                        logger.warning(f"Error checking for updates for {symbol}: {str(e)}")
+
                 except DataNotFoundError:
                     # did not find data on local disk, downloading and saving it
                     logger.info(f"Data for {symbol} not found locally. Downloading from Alpha Vantage...")
                     try:
                         dataframe = await self._download_and_save_data(symbol)
                         logger.info(f"Downloaded and saved data for {symbol}")
+
+                        # Filter to the requested date range
+                        mask = (dataframe.index >= start_date) & (dataframe.index <= end_date)
+                        dataframe = dataframe.loc[mask]
                     except (DataDownloadError, APIError) as e:
                         logger.error(f"Failed to download data for {symbol}: {str(e)}")
                         raise DataNotFoundError(f"Could not find or download data for {symbol}") from e
 
-                # is the data up-to-date
-                if dataframe.empty:
-                    # If dataframe is empty, we need to skip the date comparison
-                    logger.warning(f"Empty dataframe for {symbol}, skipping date comparison")
-                    last_date_in_df = None
-                else:
-                    last_date_in_df = dataframe.index.max()
-                    logger.debug(f"last_date_in_df type: {type(last_date_in_df)}, value: {last_date_in_df}")
-                    logger.debug(f"end_date type: {type(end_date)}, value: {end_date}")
-
-                    # Convert to datetime.date if needed
-                    if isinstance(last_date_in_df, str):
-                        last_date_in_df = pd.to_datetime(last_date_in_df).date()
-
-                # Only try to update if we have a valid last_date_in_df and it's before end_date
-                if last_date_in_df is not None and last_date_in_df < end_date:
-                    try:
-                        dataframe = await self._update_with_latest_data(symbol=symbol,
-                                                              last_date_in_df=last_date_in_df,
-                                                              previous_data=dataframe)
-                    except Exception as e:
-                        # Log the error but continue with the data we have
-                        logger.warning(f"Failed to update data for {symbol}: {str(e)}")
-
+                # Store only the data for the requested date range
                 self.loaded_data_symbol = symbol
                 self.loaded_data = dataframe
 
                 # Ensure index is datetime.date for comparison
-                if not all(isinstance(idx, date) for idx in self.loaded_data.index):
-                    self.loaded_data.index = pd.to_datetime(self.loaded_data.index).date
+                if not dataframe.empty and not all(isinstance(idx, date) for idx in dataframe.index):
+                    dataframe.index = pd.to_datetime(dataframe.index).date
 
-            # Filter data by date range
-            mask = (self.loaded_data.index >= start_date) & (self.loaded_data.index <= end_date)
-            result = self.loaded_data.loc[mask]
+            else:
+                # We already have data loaded for this symbol, filter by date range
+                mask = (self.loaded_data.index >= start_date) & (self.loaded_data.index <= end_date)
+                dataframe = self.loaded_data.loc[mask]
 
             # Check if we have data for the requested date range
-            if result.empty:
+            if dataframe.empty:
                 logger.warning(f"No data found for {symbol} between {start_date} and {end_date}")
 
-            return result
+            return dataframe
         except (DataNotFoundError, DataProcessingError) as e:
             # Re-raise these exceptions as they are already properly formatted
             raise
@@ -579,7 +626,90 @@ class DataReader(DataReaderInterface):
             logger.error(f"Unexpected error getting data for {symbol}: {str(e)}")
             raise DataProcessingError(f"Unexpected error getting data for {symbol}: {str(e)}") from e
 
-    async def get_data(self, symbol: str, start_date: date, end_date: date) -> pd.DataFrame:
+    async def _get_data_chunked(self, symbol: str, start_date: date, end_date: date, chunk_size: int):
+        """
+        Get market data for a symbol in chunks to avoid loading the entire dataset into memory.
+
+        Args:
+            symbol: Stock symbol (e.g., 'MSFT', 'AAPL')
+            start_date: Start date for the data range
+            end_date: End date for the data range
+            chunk_size: Number of rows to load in each chunk
+
+        Yields:
+            Chunks of pandas DataFrame containing the market data
+        """
+        try:
+            # Check if the data file exists
+            file_path = os.path.join(self.DATA_PARQUET_LOCATION, f"{symbol}.parquet")
+            if not os.path.exists(file_path):
+                # If parquet file doesn't exist, try to download or convert from pickle
+                try:
+                    # Try to load from pickle and convert to parquet
+                    pickle_path = os.path.join(self.DATA_PICKLE_LOCATION, f"{symbol}.pkl.gz")
+                    if os.path.exists(pickle_path):
+                        df = pd.read_pickle(pickle_path)
+                        self._save_data_parquet(symbol, df)
+                        logger.info(f"Converted pickle data for {symbol} to parquet format")
+                    else:
+                        # Download data if neither format exists
+                        logger.info(f"Data for {symbol} not found locally. Downloading from Alpha Vantage...")
+                        df = await self._download_and_save_data(symbol)
+                        logger.info(f"Downloaded and saved data for {symbol}")
+                except Exception as e:
+                    logger.error(f"Error preparing data for chunked reading: {str(e)}")
+                    raise DataProcessingError(f"Error preparing data for chunked reading: {str(e)}") from e
+
+            # Use pandas to read the parquet file in chunks
+            # Since parquet doesn't support native chunking like CSV, we'll use filters to simulate chunks
+            # First, get all dates in the range
+            try:
+                # Read just the index to get all dates
+                df_index = pd.read_parquet(file_path, columns=[])
+                df_index.index = pd.to_datetime(df_index.index).date
+
+                # Filter to the requested date range
+                mask = (df_index.index >= start_date) & (df_index.index <= end_date)
+                dates_in_range = df_index.index[mask].sort_values()
+
+                # If no dates in range, return empty DataFrame
+                if len(dates_in_range) == 0:
+                    logger.warning(f"No data found for {symbol} between {start_date} and {end_date}")
+                    yield pd.DataFrame()
+                    return
+
+                # Process dates in chunks
+                for i in range(0, len(dates_in_range), chunk_size):
+                    chunk_dates = dates_in_range[i:i+chunk_size]
+                    if len(chunk_dates) == 0:
+                        break
+
+                    # Create filters for this chunk of dates
+                    min_date = chunk_dates.min()
+                    max_date = chunk_dates.max()
+
+                    # Load just this chunk of data
+                    filters = [
+                        ('date', '>=', min_date),
+                        ('date', '<=', max_date)
+                    ]
+                    chunk_df = self._load_data(symbol, filters=filters)
+
+                    # Yield this chunk
+                    yield chunk_df
+
+                    # Clear memory
+                    del chunk_df
+
+            except Exception as e:
+                logger.error(f"Error reading data in chunks: {str(e)}")
+                raise DataProcessingError(f"Error reading data in chunks: {str(e)}") from e
+
+        except Exception as e:
+            logger.error(f"Unexpected error in chunked data reading: {str(e)}")
+            raise DataProcessingError(f"Unexpected error in chunked data reading: {str(e)}") from e
+
+    async def get_data(self, symbol: str, start_date: date, end_date: date, chunk_size: int = None) -> pd.DataFrame:
         """
         Get market data for a symbol within a specified date range.
 
@@ -591,14 +721,21 @@ class DataReader(DataReaderInterface):
             symbol: Stock symbol (e.g., 'MSFT', 'AAPL')
             start_date: Start date for the data range
             end_date: End date for the data range
+            chunk_size: If provided, returns a generator that yields chunks of data
+                       instead of loading the entire dataset into memory
 
         Returns:
-            A pandas DataFrame containing the market data for the specified date range
+            A pandas DataFrame containing the market data for the specified date range,
+            or a generator yielding chunks of data if chunk_size is provided
 
         Raises:
             DataNotFoundError: If data cannot be found or downloaded
             DataProcessingError: If there's an error processing the data
         """
+        # If chunk_size is provided, use the chunked version
+        if chunk_size is not None:
+            return self._get_data_chunked(symbol, start_date, end_date, chunk_size)
+
         # Generate cache key
         cache_key = self._get_data_cache_key(symbol, start_date, end_date)
 
