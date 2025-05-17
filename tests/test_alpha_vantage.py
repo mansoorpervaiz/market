@@ -73,7 +73,7 @@ GOOG,Alphabet Inc,NASDAQ,Stock,2004-08-19,,Active
         # Mock the response
         mock_response = mock.MagicMock()
         mock_response.raise_for_status = mock.MagicMock()
-        mock_response.json.return_value = self.sample_time_series_data
+        mock_response.json = mock.AsyncMock(return_value=self.sample_time_series_data)
 
         # Mock the session's get method to return our mock response
         mock_context_manager = mock.MagicMock()
@@ -101,9 +101,9 @@ GOOG,Alphabet Inc,NASDAQ,Stock,2004-08-19,,Active
         # Mock the response with an error message
         mock_response = mock.MagicMock()
         mock_response.raise_for_status = mock.MagicMock()
-        mock_response.json.return_value = {
+        mock_response.json = mock.AsyncMock(return_value={
             "Error Message": "Invalid API call. Please retry or visit the documentation."
-        }
+        })
 
         # Mock the session's get method to return our mock response
         mock_context_manager = mock.MagicMock()
@@ -123,9 +123,9 @@ GOOG,Alphabet Inc,NASDAQ,Stock,2004-08-19,,Active
         # Mock the response with a premium endpoint message
         mock_response = mock.MagicMock()
         mock_response.raise_for_status = mock.MagicMock()
-        mock_response.json.return_value = {
+        mock_response.json = mock.AsyncMock(return_value={
             "Information": "This is a premium endpoint. Please subscribe to a premium plan."
-        }
+        })
 
         # Mock the session's get method to return our mock response
         mock_context_manager = mock.MagicMock()
@@ -145,7 +145,7 @@ GOOG,Alphabet Inc,NASDAQ,Stock,2004-08-19,,Active
         # Mock the response with an empty response (rate limiting)
         mock_response = mock.MagicMock()
         mock_response.raise_for_status = mock.MagicMock()
-        mock_response.json.return_value = {}
+        mock_response.json = mock.AsyncMock(return_value={})
 
         # Mock the session's get method to return our mock response
         mock_context_manager = mock.MagicMock()
@@ -167,7 +167,7 @@ GOOG,Alphabet Inc,NASDAQ,Stock,2004-08-19,,Active
         # Mock the response
         mock_response = mock.MagicMock()
         mock_response.raise_for_status = mock.MagicMock()
-        mock_response.text.return_value = self.sample_symbols_csv
+        mock_response.text = mock.AsyncMock(return_value=self.sample_symbols_csv)
 
         # Mock the session's get method to return our mock response
         mock_context_manager = mock.MagicMock()
@@ -194,7 +194,7 @@ GOOG,Alphabet Inc,NASDAQ,Stock,2004-08-19,,Active
         # Mock the response
         mock_response = mock.MagicMock()
         mock_response.raise_for_status = mock.MagicMock()
-        mock_response.text.return_value = self.sample_symbols_csv
+        mock_response.text = mock.AsyncMock(return_value=self.sample_symbols_csv)
 
         # Mock the session's get method to return our mock response
         mock_context_manager = mock.MagicMock()

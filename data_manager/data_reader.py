@@ -365,7 +365,7 @@ class DataReader(DataReaderInterface):
         d = await self.get_data(symbol=symbol, start_date=for_date, end_date=for_date)
         if d.size == 0:
             return None
-        return d[for_field.value][0]
+        return d[for_field.value].iloc[0]
 
 
 class FieldName(Enum):
