@@ -17,14 +17,15 @@ import ssl
 import time
 from io import StringIO
 
+from config import config
+
 class AsyncAlphaVantageDownloader:
-    BASE_URL = "https://www.alphavantage.co/query"
-    # Get API key from environment variable or use default value
-    API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY", "GNUI443FX0DTXC96")
-    RETRIES = 3
-    # Rate limiting: 75 requests per minute
-    RATE_LIMIT = 75
-    RATE_PERIOD = 60  # seconds
+    BASE_URL = config.ALPHA_VANTAGE_BASE_URL
+    API_KEY = config.ALPHA_VANTAGE_API_KEY
+    RETRIES = config.ALPHA_VANTAGE_RETRIES
+    # Rate limiting
+    RATE_LIMIT = config.ALPHA_VANTAGE_RATE_LIMIT
+    RATE_PERIOD = config.ALPHA_VANTAGE_RATE_PERIOD  # seconds
 
     # Class-level rate limiter
     _rate_limit_semaphore = asyncio.Semaphore(RATE_LIMIT)

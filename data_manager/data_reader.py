@@ -19,14 +19,15 @@ from enum import Enum
 
 from data_manager.alpha_vantage import AsyncAlphaVantageDownloader
 from logger import get_logger
+from config import config
 
 # Initialize logger
 logger = get_logger(__name__)
 
 
 class DataReader:
-    DATA_PICKLE_LOCATION = os.path.join("data", "daily", "pickle")
-    DATA_JSON_LOCATION = os.path.join("data", "daily", "json")
+    DATA_PICKLE_LOCATION = config.DATA_PICKLE_LOCATION
+    DATA_JSON_LOCATION = config.DATA_JSON_LOCATION
 
     def __init__(self):
         self.avDownloader = AsyncAlphaVantageDownloader()
@@ -260,7 +261,6 @@ class DataReader:
 
         mask = (self.loaded_data.index >= start_date) & (self.loaded_data.index <= end_date)
         result = self.loaded_data.loc[mask]
-        print(f"DataFrame columns before return: {result.columns.tolist()}")
         return result
 
     async def get_mean(self, symbol, start_date, end_date, field_name):
