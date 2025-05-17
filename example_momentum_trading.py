@@ -553,55 +553,23 @@ async def main():
     print(f"\nRunning single strategy example with S&P 500 tickers from {sp500_file}")
     # Uncomment the following lines to run with different strategies or all available tickers
 
-    # MovingAverageCrossover is not a tradable strategy in its current form.
-    # Even though MA crossover systems are popular, they:
-    # Work better on commodities or FX, not equities.
-    # Need trend filters (ADX, slope filters, volume filters).
-    # Often benefit from volatility or momentum confirmation.
-    #
-    # await run_single_strategy_example(input_file=sp500_file, strategy_name="MovingAverageCrossover")
+    # See tests/test_strategy_evaluations.py for evaluations of MovingAverageCrossover strategy
 
+    # See tests/test_strategy_evaluations.py for evaluations of RSI strategy
 
-    # RSI doesn't work
-    # 1. Only 41 out of 81000 tests were “good”
-    # That’s 0.05% success rate — effectively noise.
-    # Most configurations had Sharpe < 0, meaning the strategy underperformed risk-free returns.
-    #
-    # 2. Returns were driven by a few lucky trades
-    # Even the best configurations often had fewer than 20 trades in 10 years.
-    # This isn't repeatable — it’s statistically flimsy.
-    #
-    # 3. Highly parameter-sensitive
-    # Tiny changes in RSI window or thresholds led to wildly different outcomes.
-    # This is a sign of overfitting, not robust alpha.
-    #
-    # 4. Drawdowns remain high
-    # 20–30% drawdowns for modest returns are unattractive for short-term trading.
-    # You’d get better risk-adjusted returns just holding SPY.
-    #
-    # await run_single_strategy_example(input_file=sp500_file, strategy_name="RSI")
+    # See tests/test_strategy_evaluations.py for evaluations of Rate of Change strategy
 
-    # Rate of change doesn't work
-    # ❌ Is not profitable or robust across a broad universe.
-    # ❌ Has very few consistently winning tickers.
-    # ❌ Underperforms passive investing (e.g., SPY buy-and-hold).
-    # ⚠️ Shows signs of overfitting + signal noise.
-
-    # Run the BreakoutStrategy
-    # await run_single_strategy_example(input_file=sp500_file, strategy_name="BreakoutStrategy")
+    # See tests/test_strategy_evaluations.py for evaluations of BreakoutStrategy
 
     # Run the TopBreakout strategy with all historical data
     print("\nRunning TopBreakout strategy with all historical data...")
     await run_single_strategy_example(input_file=sp500_file, strategy_name="TopBreakout")
 
-    # Uncomment to run with all available tickers instead of just S&P 500
-    # await run_single_strategy_example(strategy_name="TopBreakout")
+    # See tests/test_strategy_evaluations.py for running with all available tickers
 
-    # Run the strategy comparison example
-    # await compare_strategies_example()
+    # See tests/test_strategy_evaluations.py for strategy comparison examples
 
-    # Run the benchmark comparison example
-    # await compare_to_benchmark_example()
+    # See tests/test_strategy_evaluations.py for benchmark comparison examples
 
 
 if __name__ == "__main__":
