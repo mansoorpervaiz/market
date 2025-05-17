@@ -12,8 +12,6 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import asyncio
-import dask.dataframe as dd
-from dask.distributed import Client, LocalCluster
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional, Tuple
@@ -194,8 +192,7 @@ class BacktestReport(BacktestReportInterface):
 class BackTester(BackTesterInterface):
     """Backtesting framework for trading strategies."""
 
-    def __init__(self, data_reader: DataReaderInterface, initial_capital: float = 10000, transaction_cost_pct: float = 0.1, 
-                 use_dask: bool = True, n_workers: int = None):
+    def __init__(self, data_reader: DataReaderInterface, initial_capital: float = 10000, transaction_cost_pct: float = 0.1):
         """
         Initialize the backtester.
 
@@ -203,30 +200,14 @@ class BackTester(BackTesterInterface):
             data_reader: An instance of a class implementing DataReaderInterface to access financial data.
             initial_capital (float): Initial capital for the backtest.
             transaction_cost_pct (float): Transaction cost as a percentage of trade value.
-            use_dask (bool): Whether to use dask for parallel processing.
-            n_workers (int): Number of workers for dask. If None, uses number of CPU cores.
         """
         self.data_reader = data_reader
         self.initial_capital = initial_capital
         self.transaction_cost_pct = transaction_cost_pct
-        self.use_dask = use_dask
-        self.n_workers = n_workers
-
-        # Initialize dask client if enabled
-        self.dask_client = None
-        if self.use_dask:
-            try:
-                # Create a local cluster with specified number of workers
-                cluster = LocalCluster(n_workers=self.n_workers, threads_per_worker=1)
-                self.dask_client = Client(cluster)
-            except Exception as e:
-                print(f"Warning: Failed to initialize dask client: {e}")
-                self.use_dask = False
 
     async def backtest(self, strategy, symbol, start_date, end_date):
         """
         Run a backtest for a given strategy, symbol, and date range.
-        Uses dask for parallel processing if enabled.
 
         Args:
             strategy: A strategy instance that implements generate_signals.
@@ -246,100 +227,8 @@ class BackTester(BackTesterInterface):
         # Merge price data with signals
         data = pd.merge(price_data, signals, left_index=True, right_index=True, how='left')
 
-        if self.use_dask and len(data) > 1000:  # Only use dask for larger datasets
-            try:
-                # Define a function to process a chunk of data
-                def process_chunk(df, initial_state=None):
-                    # Unpack initial state or use defaults
-                    if initial_state:
-                        chunk_capital, chunk_position, chunk_trades, chunk_current_trade = initial_state
-                    else:
-                        chunk_capital = self.initial_capital
-                        chunk_position = 0
-                        chunk_trades = []
-                        chunk_current_trade = None
-
-                    # Create equity curve for this chunk
-                    chunk_equity = pd.Series(index=df.index, dtype=float)
-
-                    # Process each row in the chunk
-                    for date, row in df.iterrows():
-                        # Record equity at this point
-                        chunk_equity[date] = chunk_capital if chunk_position == 0 else chunk_capital + chunk_position * row['close']
-
-                        # Process signals
-                        if row['signal'] == Signal.BUY.value and chunk_position == 0:
-                            # Buy signal and no position - enter a new trade
-                            chunk_position = chunk_capital / row['close']  # Number of shares
-                            chunk_capital -= chunk_position * row['close'] * (1 + self.transaction_cost_pct / 100)
-                            chunk_current_trade = Trade(
-                                symbol=symbol,
-                                entry_date=date,
-                                entry_price=row['close']
-                            )
-
-                        elif row['signal'] == Signal.SELL.value and chunk_position > 0:
-                            # Sell signal and have a position - exit the trade
-                            chunk_capital += chunk_position * row['close'] * (1 - self.transaction_cost_pct / 100)
-
-                            # Complete the current trade
-                            chunk_current_trade.exit_date = date
-                            chunk_current_trade.exit_price = row['close']
-                            chunk_trades.append(chunk_current_trade)
-
-                            # Reset position
-                            chunk_position = 0
-                            chunk_current_trade = None
-
-                    # Return the state and equity curve for this chunk
-                    return chunk_capital, chunk_position, chunk_trades, chunk_current_trade, chunk_equity
-
-                # Convert to dask DataFrame
-                dask_df = dd.from_pandas(data, npartitions=self.n_workers or 4)
-
-                # Process in parallel using dask
-                results = []
-                current_state = None
-
-                # Process each partition sequentially, passing state between them
-                for i in range(dask_df.npartitions):
-                    partition = dask_df.get_partition(i).compute()
-                    current_state = process_chunk(partition, current_state)
-                    results.append(current_state)
-
-                # Extract final state
-                capital, position, trades, current_trade, equity_parts = results[-1]
-
-                # Combine equity curves from all partitions
-                equity_curve = pd.concat([result[4] for result in results])
-
-                # Close any open position at the end of the backtest
-                if position > 0 and current_trade:
-                    last_price = data['close'].iloc[-1]
-                    capital += position * last_price * (1 - self.transaction_cost_pct / 100)
-
-                    current_trade.exit_date = data.index[-1]
-                    current_trade.exit_price = last_price
-                    trades.append(current_trade)
-
-            except Exception as e:
-                print(f"Warning: Dask processing failed, falling back to sequential processing: {e}")
-                # Fall back to sequential processing
-                return await self._backtest_sequential(strategy, symbol, start_date, end_date, data)
-        else:
-            # Use sequential processing for smaller datasets or if dask is disabled
-            return await self._backtest_sequential(strategy, symbol, start_date, end_date, data)
-
-        # Create and return the backtest report
-        return BacktestReport(
-            symbol=symbol,
-            start_date=start_date,
-            end_date=end_date,
-            initial_capital=self.initial_capital,
-            final_capital=capital,
-            trades=trades,
-            equity_curve=equity_curve
-        )
+        # Use sequential processing
+        return await self._backtest_sequential(strategy, symbol, start_date, end_date, data)
 
     async def _backtest_sequential(self, strategy, symbol, start_date, end_date, data=None, chunk_size=None):
         """
@@ -503,18 +392,19 @@ class BackTester(BackTesterInterface):
         """
         # Create a list of tasks for each strategy
         tasks = []
-        strategy_names = []
+        strategy_keys = []
 
-        for strategy in strategies:
-            strategy_name = strategy.__class__.__name__
-            strategy_names.append(strategy_name)
+        for i, strategy in enumerate(strategies):
+            # Use a combination of class name and index to ensure uniqueness
+            strategy_key = f"{strategy.__class__.__name__}_{i+1}"
+            strategy_keys.append(strategy_key)
             tasks.append(self.backtest(strategy, symbol, start_date, end_date))
 
         # Run all backtests concurrently
         reports = await asyncio.gather(*tasks)
 
-        # Map strategy names to their reports
-        results = {name: report for name, report in zip(strategy_names, reports)}
+        # Map strategy keys to their reports
+        results = {key: report for key, report in zip(strategy_keys, reports)}
 
         return results
 

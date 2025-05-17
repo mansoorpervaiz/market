@@ -79,6 +79,8 @@ class TestIntegration(unittest.TestCase):
         mock_load.side_effect = [
             # First call: raise DataNotFoundError to trigger download
             DataNotFoundError("Data not found"),
+            # Second call: also raise DataNotFoundError (for the max_date_df load)
+            DataNotFoundError("Data not found"),
             # Subsequent calls: return the sample data
             self.sample_df
         ]
@@ -191,10 +193,19 @@ class TestIntegration(unittest.TestCase):
             'signal': [Signal.HOLD.value] * 15 + [Signal.BUY.value] + [Signal.HOLD.value] * 10 + [Signal.SELL.value] + [Signal.HOLD.value] * 4
         }, index=dates.date)
 
-        # Set up the mock to return different signals based on the strategy
-        mock_generate_signals.side_effect = lambda symbol, start_date, end_date: (
-            signals1 if self == strategy1 else signals2
-        )
+        # Set up the mock to return different signals for each call
+        # Use a counter to alternate between signals1 and signals2
+        call_count = [0]  # Use a list to make it mutable in the closure
+
+        def get_signals(symbol, start_date, end_date):
+            # Increment the counter and return signals based on the call number
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return signals1
+            else:
+                return signals2
+
+        mock_generate_signals.side_effect = get_signals
 
         # Create a backtester
         backtester = BackTester(

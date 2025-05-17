@@ -104,6 +104,107 @@ Run the test script to verify that lxml is properly installed:
 python test_lxml_installation.py
 ```
 
+## Resolving NumPy Compatibility Issues
+
+### IMPORTANT: NumPy Version Compatibility
+
+When running tests or using the project, you may encounter the following error:
+
+```
+A module that was compiled using NumPy 1.x cannot be run in
+NumPy 2.2.5 as it may crash. To support both 1.x and 2.x
+versions of NumPy, modules must be compiled with NumPy 2.0.
+Some module may need to rebuild instead e.g. with 'pybind11>=2.12'.
+```
+
+This error occurs because some dependencies in the project (particularly pyarrow) were compiled with NumPy 1.x and are not compatible with NumPy 2.x. You have two options to resolve this issue:
+
+### Option 1: Downgrade NumPy (Simplest Solution)
+
+The simplest solution is to downgrade NumPy to a version less than 2.0:
+
+```bash
+pip install numpy<2.0.0
+```
+
+After downgrading NumPy, reinstall the project dependencies to ensure all packages are compatible:
+
+```bash
+pip install -r requirements.txt
+```
+
+This will install a compatible version of NumPy that works with the project's dependencies and ensure that all other dependencies are correctly installed.
+
+### Option 2: Use NumPy 2.x with Recompiled pyarrow
+
+If you prefer to use NumPy 2.x, you can recompile pyarrow against NumPy 2.x as described in "Alternative Solution 2" below. This approach requires more setup but allows you to use the latest NumPy version.
+
+### Verifying NumPy Version
+
+To verify that you have the correct version of NumPy installed, run:
+
+```bash
+python -c "import numpy; print(numpy.__version__)"
+```
+
+The output should show a version less than 2.0.0 (e.g., 1.26.4).
+
+### Option 2: Recompiling pyarrow with NumPy 2.x
+
+If you prefer to use NumPy 2.x and recompile pyarrow to be compatible, follow these steps:
+
+1. **Ensure you have the necessary build tools installed**:
+
+   **Ubuntu/Debian**:
+   ```bash
+   sudo apt-get install -y build-essential cmake
+   ```
+
+   **macOS**:
+   ```bash
+   brew install cmake
+   ```
+
+   **Windows**:
+   Install Visual Studio Build Tools and CMake.
+
+2. **Install NumPy 2.x**:
+   ```bash
+   pip install numpy>=2.0.0
+   ```
+
+3. **Install pyarrow from source**:
+   ```bash
+   pip uninstall -y pyarrow
+   pip install --no-binary pyarrow pyarrow
+   ```
+
+   This command forces pip to compile pyarrow from source against your installed NumPy version.
+
+4. **Verify the installation**:
+   ```bash
+   python -c "import pyarrow; import numpy; print(f'PyArrow version: {pyarrow.__version__}, NumPy version: {numpy.__version__}')"
+   ```
+
+5. **Reinstall other dependencies**:
+   ```bash
+   pip install -r requirements.txt --no-deps
+   ```
+
+Note that compiling from source can take significant time and requires sufficient system resources. If you encounter build errors, you may need to install additional system dependencies or consider using Option 3 instead.
+
+### Option 3: Separate Virtual Environment
+
+If you need to use NumPy 2.x for other projects but don't want to recompile pyarrow, you can create a separate virtual environment for this project:
+
+```bash
+python -m venv .venv_numpy1
+source .venv_numpy1/bin/activate  # On Windows: .venv_numpy1\Scripts\activate
+pip install -r requirements.txt
+```
+
+This will create a new virtual environment with NumPy 1.x installed, which will be compatible with the project's dependencies.
+
 ## Parallel Processing Features
 
 This project implements parallel processing to improve performance for data-intensive operations:

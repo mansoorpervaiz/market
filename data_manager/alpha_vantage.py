@@ -101,6 +101,15 @@ class AsyncAlphaVantageDownloader(DownloaderInterface):
         else:
             return await self._fetch_with_retries(self.session, symbol, function, **kwargs)
 
+    async def close_session(self):
+        """
+        Close the session if it was created by this instance.
+        This method is called to clean up resources when the downloader is no longer needed.
+        """
+        if self._own_session and self.session is not None:
+            await self.session.close()
+            self.session = None
+
     async def _fetch_with_retries(self, session: aiohttp.ClientSession, symbol: str, function: str = "TIME_SERIES_DAILY_ADJUSTED", **kwargs) -> dict:
         params = {
             "function": function,
@@ -133,6 +142,11 @@ class AsyncAlphaVantageDownloader(DownloaderInterface):
                         error_msg = f"Error for {params['symbol']}: {data['Error Message']}"
                         logger.error(error_msg)
                         raise APIError(error_msg)
+                    if 'Note' in data:
+                        # This is often a rate limit message
+                        error_msg = f"Rate limit note for {params['symbol']}: {data['Note']}"
+                        logger.warning(error_msg)
+                        raise RateLimitError(error_msg)
 
                     # Check if response is empty
                     if not data:
@@ -151,6 +165,9 @@ class AsyncAlphaVantageDownloader(DownloaderInterface):
                     # AlphaVantage will return a note or empty if rate‑limited
                 # fell through → retry
             except (aiohttp.ClientError, asyncio.TimeoutError, RateLimitError, APIError) as e:
+                # For all errors, retry with exponential backoff
+                # We'll retry all errors including APIError and PremiumEndpointError
+                # This allows for transient API issues to be resolved with retries
                 # Calculate exponential backoff with jitter
                 # Exponential backoff: 2^attempt * base_backoff
                 backoff = min(max_backoff, (2 ** (attempt - 1)) * base_backoff)
@@ -167,6 +184,7 @@ class AsyncAlphaVantageDownloader(DownloaderInterface):
 
                 if attempt == self.RETRIES:
                     logger.error(f"Failed to fetch data for {params['symbol']} after {self.RETRIES} attempts: {str(e)}")
+                    # For other errors, wrap them in a DataDownloadError
                     raise DataDownloadError(f"Failed to fetch data for {params['symbol']} after {self.RETRIES} attempts: {str(e)}") from e
 
                 await asyncio.sleep(wait_time)
@@ -221,6 +239,16 @@ class AsyncAlphaVantageDownloader(DownloaderInterface):
                                 error_msg = f"Premium endpoint error: {data['Information']}"
                                 logger.error(error_msg)
                                 raise PremiumEndpointError(error_msg)
+                            # Check for error message
+                            if 'Error Message' in data:
+                                error_msg = f"Error: {data['Error Message']}"
+                                logger.error(error_msg)
+                                raise APIError(error_msg)
+                            # Check for rate limit note
+                            if 'Note' in data:
+                                error_msg = f"Rate limit note: {data['Note']}"
+                                logger.warning(error_msg)
+                                raise RateLimitError(error_msg)
                         except json.JSONDecodeError:
                             # Not valid JSON, continue with CSV parsing
                             pass
@@ -237,7 +265,7 @@ class AsyncAlphaVantageDownloader(DownloaderInterface):
                                 symbols.append(symbol)
 
                     return symbols
-            except (aiohttp.ClientError, asyncio.TimeoutError, PremiumEndpointError) as e:
+            except (aiohttp.ClientError, asyncio.TimeoutError, APIError) as e:
                 # Calculate exponential backoff with jitter
                 # Exponential backoff: 2^attempt * base_backoff
                 backoff = min(max_backoff, (2 ** (attempt - 1)) * base_backoff)

@@ -11,7 +11,7 @@
 import pandas as pd
 import numpy as np
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from enum import Enum
 
 from strategies.base_strategy import MomentumStrategy, Signal

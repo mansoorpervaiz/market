@@ -42,6 +42,21 @@ from interfaces.data_access.downloader_interface import DownloaderInterface
 logger = get_logger(__name__)
 
 
+class FieldName(Enum):
+    """
+    Enumeration of field names used in market data.
+
+    These field names are used to access specific columns in the market data DataFrame
+    and provide a standardized way to refer to different types of price and volume data.
+    """
+    OPEN = "open"
+    HIGH = "high"
+    LOW = "low"
+    CLOSE = "close"
+    ADJUSTED_CLOSE = "adjusted_close"
+    VOLUME = "volume"
+
+
 class DataReader(DataReaderInterface):
     """
     A class for reading, processing, and managing market data.
@@ -279,8 +294,15 @@ class DataReader(DataReaderInterface):
             symbol_data: DataFrame containing stock data
         """
         try:
+            # Create a copy to avoid modifying the original
+            df = symbol_data.copy()
+
+            # Ensure the index is named for consistency
+            if df.index.name is None:
+                df.index.name = 'date'
+
             file_path = os.path.join(self.DATA_PICKLE_LOCATION, f"{symbol}.pkl.gz")
-            symbol_data.to_pickle(file_path)
+            df.to_pickle(file_path)
             logger.debug(f"Saved pickle data for {symbol}")
         except Exception as e:
             logger.error(f"Error saving pickle data for {symbol}: {str(e)}")
@@ -818,21 +840,6 @@ class DataReader(DataReaderInterface):
         if d.size == 0:
             return None
         return d.loc[for_date, for_field.value]
-
-
-class FieldName(Enum):
-    """
-    Enumeration of field names used in market data.
-
-    These field names are used to access specific columns in the market data DataFrame
-    and provide a standardized way to refer to different types of price and volume data.
-    """
-    OPEN = "open"
-    HIGH = "high"
-    LOW = "low"
-    CLOSE = "close"
-    ADJUSTED_CLOSE = "adjusted_close"
-    VOLUME = "volume"
 
 
 if __name__ == '__main__':

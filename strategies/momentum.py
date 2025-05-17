@@ -10,7 +10,7 @@
 
 import pandas as pd
 import numpy as np
-from datetime import timedelta
+from datetime import date, timedelta
 
 from strategies.base_strategy import BaseStrategy, IndicatorMixin, Signal, MomentumStrategy
 from interfaces.data_access.data_reader_interface import DataReaderInterface

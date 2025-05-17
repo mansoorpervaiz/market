@@ -26,7 +26,7 @@ from backtester import BackTester
 async def test_moving_average_crossover():
     """
     Test the MovingAverageCrossover strategy.
-    
+
     Notes on why this strategy doesn't work well:
     - MovingAverageCrossover is not a tradable strategy in its current form.
     - Even though MA crossover systems are popular, they:
@@ -36,7 +36,7 @@ async def test_moving_average_crossover():
     """
     # Get SP500 tickers
     sp500_file = "data/SP500.csv"
-    
+
     # Initialize components
     data_reader = DataReader()
     strategy = MovingAverageCrossoverStrategy(
@@ -49,11 +49,11 @@ async def test_moving_average_crossover():
         initial_capital=10000,
         transaction_cost_pct=0.1
     )
-    
+
     # Define test period
     start_date = date(2020, 1, 1)
     end_date = date(2022, 12, 31)
-    
+
     # Run backtest on a sample ticker
     symbol = "AAPL"  # Example ticker
     report = await backtester.backtest(
@@ -62,32 +62,32 @@ async def test_moving_average_crossover():
         start_date=start_date,
         end_date=end_date
     )
-    
+
     # Print results
     print(f"\nMovingAverageCrossover Strategy Results for {symbol}:")
     for key, value in report.summary().items():
         print(f"{key}: {value}")
-    
+
     return report
 
 
 async def test_rsi_strategy():
     """
     Test the RSI strategy.
-    
+
     Notes on why this strategy doesn't work well:
     1. Only 41 out of 81000 tests were "good"
        - That's 0.05% success rate — effectively noise.
        - Most configurations had Sharpe < 0, meaning the strategy underperformed risk-free returns.
-    
+
     2. Returns were driven by a few lucky trades
        - Even the best configurations often had fewer than 20 trades in 10 years.
        - This isn't repeatable — it's statistically flimsy.
-    
+
     3. Highly parameter-sensitive
        - Tiny changes in RSI window or thresholds led to wildly different outcomes.
        - This is a sign of overfitting, not robust alpha.
-    
+
     4. Drawdowns remain high
        - 20–30% drawdowns for modest returns are unattractive for short-term trading.
        - You'd get better risk-adjusted returns just holding SPY.
@@ -107,11 +107,11 @@ async def test_rsi_strategy():
         initial_capital=10000,
         transaction_cost_pct=0.1
     )
-    
+
     # Define test period
     start_date = date(2020, 1, 1)
     end_date = date(2022, 12, 31)
-    
+
     # Run backtest on a sample ticker
     symbol = "AAPL"  # Example ticker
     report = await backtester.backtest(
@@ -120,19 +120,19 @@ async def test_rsi_strategy():
         start_date=start_date,
         end_date=end_date
     )
-    
+
     # Print results
     print(f"\nRSI Strategy Results for {symbol}:")
     for key, value in report.summary().items():
         print(f"{key}: {value}")
-    
+
     return report
 
 
 async def test_rate_of_change_strategy():
     """
     Test the Rate of Change strategy.
-    
+
     Notes on why this strategy doesn't work well:
     - Is not profitable or robust across a broad universe.
     - Has very few consistently winning tickers.
@@ -152,11 +152,11 @@ async def test_rate_of_change_strategy():
         initial_capital=10000,
         transaction_cost_pct=0.1
     )
-    
+
     # Define test period
     start_date = date(2020, 1, 1)
     end_date = date(2022, 12, 31)
-    
+
     # Run backtest on a sample ticker
     symbol = "AAPL"  # Example ticker
     report = await backtester.backtest(
@@ -165,12 +165,12 @@ async def test_rate_of_change_strategy():
         start_date=start_date,
         end_date=end_date
     )
-    
+
     # Print results
     print(f"\nRate of Change Strategy Results for {symbol}:")
     for key, value in report.summary().items():
         print(f"{key}: {value}")
-    
+
     return report
 
 
@@ -188,11 +188,11 @@ async def test_breakout_strategy():
         initial_capital=10000,
         transaction_cost_pct=0.1
     )
-    
+
     # Define test period
     start_date = date(2020, 1, 1)
     end_date = date(2022, 12, 31)
-    
+
     # Run backtest on a sample ticker
     symbol = "AAPL"  # Example ticker
     report = await backtester.backtest(
@@ -201,12 +201,12 @@ async def test_breakout_strategy():
         start_date=start_date,
         end_date=end_date
     )
-    
+
     # Print results
     print(f"\nBreakout Strategy Results for {symbol}:")
     for key, value in report.summary().items():
         print(f"{key}: {value}")
-    
+
     return report
 
 
@@ -321,17 +321,16 @@ async def test_compare_to_benchmark():
 async def run_all_tests():
     """Run all strategy evaluation tests."""
     print("Running strategy evaluation tests...")
-    
+
     await test_moving_average_crossover()
     await test_rsi_strategy()
     await test_rate_of_change_strategy()
     await test_breakout_strategy()
     await test_compare_strategies()
     await test_compare_to_benchmark()
-    
+
     print("\nAll tests completed.")
 
 
 if __name__ == "__main__":
     asyncio.run(run_all_tests())
-"""

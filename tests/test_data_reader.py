@@ -89,6 +89,8 @@ class TestDataReader(unittest.TestCase):
             'dividend_amount': [0.0000, 0.0000, 0.0000],
             'split_coefficient': [1.0000, 1.0000, 1.0000]
         }, index=dates.date)
+        # Set the index name to 'date' for consistency with the data reader
+        self.sample_df.index.name = 'date'
 
         # Create a temporary directory for test data
         self.test_data_dir = Path('test_data')
@@ -119,6 +121,9 @@ class TestDataReader(unittest.TestCase):
     @mock.patch('data_manager.data_reader.DataReader._download_and_save_data')
     async def test_get_data_from_cache(self, mock_download, mock_load):
         """Test getting data from cache."""
+        # Clear the cache to ensure _get_data_uncached is called
+        DataReader._data_cache.clear()
+
         # Set up the mock to return data
         mock_load.return_value = self.sample_df
 
@@ -129,8 +134,13 @@ class TestDataReader(unittest.TestCase):
             end_date=date(2023, 1, 31)
         )
 
-        # Verify that _load_data was called and _download_and_save_data was not
-        mock_load.assert_called_once_with('AAPL')
+        # Verify that _load_data was called twice and _download_and_save_data was not
+        self.assertEqual(mock_load.call_count, 2)
+        # First call is with symbol and filters
+        self.assertEqual(mock_load.call_args_list[0][0][0], 'AAPL')
+        # Second call is with symbol and columns=['close']
+        self.assertEqual(mock_load.call_args_list[1][0][0], 'AAPL')
+        self.assertEqual(mock_load.call_args_list[1][1]['columns'], ['close'])
         mock_download.assert_not_called()
 
         # Verify the result
@@ -140,6 +150,9 @@ class TestDataReader(unittest.TestCase):
     @mock.patch('data_manager.data_reader.DataReader._download_and_save_data')
     async def test_get_data_download_when_not_in_cache(self, mock_download, mock_load):
         """Test downloading data when not in cache."""
+        # Clear the cache to ensure _get_data_uncached is called
+        DataReader._data_cache.clear()
+
         # Set up the mocks
         mock_load.side_effect = DataNotFoundError("Data not found")
         mock_download.return_value = self.sample_df
@@ -152,7 +165,10 @@ class TestDataReader(unittest.TestCase):
         )
 
         # Verify that both methods were called
-        mock_load.assert_called_once_with('AAPL')
+        # _load_data is called once with filters, but raises DataNotFoundError
+        self.assertEqual(mock_load.call_count, 1)
+        self.assertEqual(mock_load.call_args[0][0], 'AAPL')
+        # _download_and_save_data is called once with the symbol
         mock_download.assert_called_once_with('AAPL')
 
         # Verify the result
@@ -162,6 +178,9 @@ class TestDataReader(unittest.TestCase):
     @mock.patch('data_manager.data_reader.DataReader._update_with_latest_data')
     async def test_get_data_update_when_outdated(self, mock_update, mock_load):
         """Test updating data when it's outdated."""
+        # Clear the cache to ensure _get_data_uncached is called
+        DataReader._data_cache.clear()
+
         # Create outdated data (missing the latest date)
         outdated_df = self.sample_df.iloc[:-1]
 
@@ -177,7 +196,13 @@ class TestDataReader(unittest.TestCase):
         )
 
         # Verify that both methods were called
-        mock_load.assert_called_once_with('AAPL')
+        # _load_data is called twice in _get_data_uncached
+        self.assertEqual(mock_load.call_count, 2)
+        # First call is with symbol and filters
+        self.assertEqual(mock_load.call_args_list[0][0][0], 'AAPL')
+        # Second call is with symbol and columns=['close']
+        self.assertEqual(mock_load.call_args_list[1][0][0], 'AAPL')
+        self.assertEqual(mock_load.call_args_list[1][1]['columns'], ['close'])
         mock_update.assert_called_once()
 
         # Verify the result
