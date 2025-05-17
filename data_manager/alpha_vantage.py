@@ -13,6 +13,7 @@ import asyncio
 import csv
 import json
 import os
+import random
 import ssl
 import time
 from io import StringIO
@@ -36,9 +37,10 @@ class AsyncAlphaVantageDownloader(DownloaderInterface):
     RATE_LIMIT = config.ALPHA_VANTAGE_RATE_LIMIT
     RATE_PERIOD = config.ALPHA_VANTAGE_RATE_PERIOD  # seconds
 
-    # Class-level rate limiter
-    _rate_limit_semaphore = asyncio.Semaphore(RATE_LIMIT)
-    _request_timestamps = []
+    # Token bucket parameters
+    _tokens = RATE_LIMIT  # Start with a full bucket
+    _last_refill_time = time.time()
+    _token_rate = RATE_LIMIT / RATE_PERIOD  # Tokens per second
     _rate_limit_lock = asyncio.Lock()
 
     def __init__(self, session: aiohttp.ClientSession = None, verify_ssl: bool = False):
@@ -55,31 +57,38 @@ class AsyncAlphaVantageDownloader(DownloaderInterface):
 
     async def _acquire_rate_limit(self):
         """
-        Implements rate limiting to ensure we don't exceed RATE_LIMIT requests per RATE_PERIOD.
+        Implements token bucket algorithm for rate limiting to ensure we don't exceed 
+        RATE_LIMIT requests per RATE_PERIOD.
         This method will wait if necessary to comply with the rate limit.
         """
         async with self._rate_limit_lock:
             current_time = time.time()
 
-            # Remove timestamps older than RATE_PERIOD
-            self._request_timestamps = [ts for ts in self._request_timestamps 
-                                       if current_time - ts < self.RATE_PERIOD]
+            # Calculate time elapsed since last token refill
+            time_elapsed = current_time - self._last_refill_time
 
-            # If we've reached the rate limit, wait until we can make another request
-            if len(self._request_timestamps) >= self.RATE_LIMIT:
-                # Calculate how long to wait
-                oldest_timestamp = min(self._request_timestamps)
-                wait_time = oldest_timestamp + self.RATE_PERIOD - current_time
-                if wait_time > 0:
-                    await asyncio.sleep(wait_time)
-                    # Update current time after waiting
-                    current_time = time.time()
-                    # Clean up timestamps again after waiting
-                    self._request_timestamps = [ts for ts in self._request_timestamps 
-                                              if current_time - ts < self.RATE_PERIOD]
+            # Calculate how many tokens to add based on elapsed time and token rate
+            tokens_to_add = time_elapsed * self._token_rate
 
-            # Add current timestamp to the list
-            self._request_timestamps.append(current_time)
+            if tokens_to_add > 0:
+                # Add tokens to the bucket (up to the maximum capacity)
+                self.__class__._tokens = min(self.__class__._tokens + tokens_to_add, self.RATE_LIMIT)
+                # Update last refill time
+                self.__class__._last_refill_time = current_time
+
+            # If there are no tokens available, calculate wait time and sleep
+            if self.__class__._tokens < 1:
+                # Calculate how long to wait for at least one token
+                wait_time = (1 - self.__class__._tokens) / self._token_rate
+                logger.debug(f"Rate limit reached. Waiting {wait_time:.2f} seconds for a token.")
+                await asyncio.sleep(wait_time)
+
+                # After waiting, we should have at least one token
+                self.__class__._tokens = 1
+                self.__class__._last_refill_time = time.time()
+
+            # Consume a token
+            self.__class__._tokens -= 1
 
             # Return the current time for reference
             return current_time
@@ -101,7 +110,11 @@ class AsyncAlphaVantageDownloader(DownloaderInterface):
         }
         # Add any additional parameters
         params.update(kwargs)
-        backoff = 1
+
+        # Initial backoff time in seconds
+        base_backoff = 1
+        max_backoff = 60  # Maximum backoff time in seconds
+
         for attempt in range(1, self.RETRIES + 1):
             try:
                 # Apply rate limiting before making the request
@@ -137,13 +150,28 @@ class AsyncAlphaVantageDownloader(DownloaderInterface):
                             return data
                     # AlphaVantage will return a note or empty if rate‑limited
                 # fell through → retry
-            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                logger.warning(f"Network error for {params['symbol']} (attempt {attempt}/{self.RETRIES}): {str(e)}")
+            except (aiohttp.ClientError, asyncio.TimeoutError, RateLimitError, APIError) as e:
+                # Calculate exponential backoff with jitter
+                # Exponential backoff: 2^attempt * base_backoff
+                backoff = min(max_backoff, (2 ** (attempt - 1)) * base_backoff)
+                # Add jitter: random value between 0 and backoff/2
+                jitter = random.uniform(0, backoff / 2)
+                # Total wait time with jitter
+                wait_time = backoff + jitter
+
+                error_type = e.__class__.__name__
+                logger.warning(
+                    f"{error_type} for {params['symbol']} (attempt {attempt}/{self.RETRIES}): {str(e)}. "
+                    f"Retrying in {wait_time:.2f} seconds..."
+                )
+
                 if attempt == self.RETRIES:
                     logger.error(f"Failed to fetch data for {params['symbol']} after {self.RETRIES} attempts: {str(e)}")
                     raise DataDownloadError(f"Failed to fetch data for {params['symbol']} after {self.RETRIES} attempts: {str(e)}") from e
-            await asyncio.sleep(backoff)
-            backoff *= 2
+
+                await asyncio.sleep(wait_time)
+                continue
+
         # final fallback
         return {}
 
@@ -171,7 +199,10 @@ class AsyncAlphaVantageDownloader(DownloaderInterface):
             return await self._fetch_symbols_with_retries(self.session, params, exchange)
 
     async def _fetch_symbols_with_retries(self, session: aiohttp.ClientSession, params: dict, exchange: str = None) -> list:
-        backoff = 1
+        # Initial backoff time in seconds
+        base_backoff = 1
+        max_backoff = 60  # Maximum backoff time in seconds
+
         for attempt in range(1, self.RETRIES + 1):
             try:
                 # Apply rate limiting before making the request
@@ -206,13 +237,27 @@ class AsyncAlphaVantageDownloader(DownloaderInterface):
                                 symbols.append(symbol)
 
                     return symbols
-            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                logger.warning(f"Network error while fetching symbols (attempt {attempt}/{self.RETRIES}): {str(e)}")
+            except (aiohttp.ClientError, asyncio.TimeoutError, PremiumEndpointError) as e:
+                # Calculate exponential backoff with jitter
+                # Exponential backoff: 2^attempt * base_backoff
+                backoff = min(max_backoff, (2 ** (attempt - 1)) * base_backoff)
+                # Add jitter: random value between 0 and backoff/2
+                jitter = random.uniform(0, backoff / 2)
+                # Total wait time with jitter
+                wait_time = backoff + jitter
+
+                error_type = e.__class__.__name__
+                logger.warning(
+                    f"{error_type} while fetching symbols (attempt {attempt}/{self.RETRIES}): {str(e)}. "
+                    f"Retrying in {wait_time:.2f} seconds..."
+                )
+
                 if attempt == self.RETRIES:
                     logger.error(f"Failed to fetch symbols after {self.RETRIES} attempts: {str(e)}")
                     raise DataDownloadError(f"Failed to fetch symbols after {self.RETRIES} attempts: {str(e)}") from e
-            await asyncio.sleep(backoff)
-            backoff *= 2
+
+                await asyncio.sleep(wait_time)
+                continue
 
         # final fallback
         return []

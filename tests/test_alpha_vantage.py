@@ -212,34 +212,87 @@ GOOG,Alphabet Inc,NASDAQ,Stock,2004-08-19,,Active
 
     @mock.patch('time.time')
     async def test_rate_limiting(self, mock_time):
-        """Test the rate limiting mechanism."""
-        # Reset the class-level rate limiter state
-        AsyncAlphaVantageDownloader._request_timestamps = []
+        """Test the token bucket rate limiting mechanism."""
+        # Reset the class-level token bucket state
+        AsyncAlphaVantageDownloader._tokens = self.downloader.RATE_LIMIT
+        AsyncAlphaVantageDownloader._last_refill_time = 1000.0
 
         # Mock time.time() to return controlled values
         mock_time.return_value = 1000.0
 
-        # First call should add a timestamp without waiting
-        await self.downloader._acquire_rate_limit()
-        self.assertEqual(len(AsyncAlphaVantageDownloader._request_timestamps), 1)
-
-        # Fill up to the rate limit
-        for i in range(1, self.downloader.RATE_LIMIT):
-            mock_time.return_value = 1000.0 + i
+        # First call should consume a token without waiting
+        with mock.patch('asyncio.sleep') as mock_sleep:
             await self.downloader._acquire_rate_limit()
+            mock_sleep.assert_not_called()
+            self.assertEqual(AsyncAlphaVantageDownloader._tokens, self.downloader.RATE_LIMIT - 1)
 
-        self.assertEqual(len(AsyncAlphaVantageDownloader._request_timestamps), self.downloader.RATE_LIMIT)
+        # Consume all remaining tokens
+        for i in range(1, self.downloader.RATE_LIMIT):
+            mock_time.return_value = 1000.0 + i * 0.1  # Small time increments
+            with mock.patch('asyncio.sleep') as mock_sleep:
+                await self.downloader._acquire_rate_limit()
+                mock_sleep.assert_not_called()
+
+        # Verify all tokens are consumed
+        self.assertEqual(AsyncAlphaVantageDownloader._tokens, 0)
 
         # Next call should trigger waiting
         with mock.patch('asyncio.sleep') as mock_sleep:
-            mock_time.return_value = 1000.0 + self.downloader.RATE_LIMIT
+            # Set time to just after consuming all tokens
+            mock_time.return_value = 1000.0 + (self.downloader.RATE_LIMIT - 1) * 0.1 + 0.05
+
+            # Calculate expected wait time based on token rate
+            # We need 1 token, and tokens are added at a rate of RATE_LIMIT / RATE_PERIOD per second
+            expected_wait_time = 1 / (self.downloader.RATE_LIMIT / self.downloader.RATE_PERIOD)
+
             await self.downloader._acquire_rate_limit()
 
-            # Should wait for the oldest timestamp to expire
-            expected_wait_time = (AsyncAlphaVantageDownloader._request_timestamps[0] + 
-                                 self.downloader.RATE_PERIOD - 
-                                 (1000.0 + self.downloader.RATE_LIMIT))
-            mock_sleep.assert_called_once_with(expected_wait_time)
+            # Should wait for at least one token to become available
+            mock_sleep.assert_called_once()
+            self.assertAlmostEqual(mock_sleep.call_args[0][0], expected_wait_time, delta=0.1)
+
+    @mock.patch('random.uniform')
+    async def test_exponential_backoff(self, mock_uniform):
+        """Test the exponential backoff with jitter mechanism."""
+        # Mock the random.uniform function to return a predictable value
+        mock_uniform.return_value = 0.5  # Fixed jitter value
+
+        # Create a mock response that will raise an exception
+        mock_response = mock.MagicMock()
+        mock_response.raise_for_status = mock.MagicMock(side_effect=aiohttp.ClientError("Test error"))
+
+        # Mock the session's get method to return our mock response
+        mock_context_manager = mock.MagicMock()
+        mock_context_manager.__aenter__.return_value = mock_response
+        self.mock_session.get.return_value = mock_context_manager
+
+        # Mock the _acquire_rate_limit method to avoid rate limiting
+        with mock.patch.object(self.downloader, '_acquire_rate_limit', return_value=None):
+            # Mock asyncio.sleep to track the wait times
+            with mock.patch('asyncio.sleep') as mock_sleep:
+                # Set a low retry count for testing
+                original_retries = self.downloader.RETRIES
+                self.downloader.RETRIES = 3
+
+                try:
+                    # Call the method that uses exponential backoff
+                    with self.assertRaises(DataDownloadError):
+                        await self.downloader.download("AAPL")
+
+                    # Verify the sleep calls with exponential backoff
+                    self.assertEqual(mock_sleep.call_count, 3)  # Called for each retry
+
+                    # First retry: backoff = 1 + jitter = 1.5
+                    self.assertAlmostEqual(mock_sleep.call_args_list[0][0][0], 1.5, delta=0.1)
+
+                    # Second retry: backoff = 2 + jitter = 2.5
+                    self.assertAlmostEqual(mock_sleep.call_args_list[1][0][0], 2.5, delta=0.1)
+
+                    # Third retry: backoff = 4 + jitter = 4.5
+                    self.assertAlmostEqual(mock_sleep.call_args_list[2][0][0], 4.5, delta=0.1)
+                finally:
+                    # Restore original retry count
+                    self.downloader.RETRIES = original_retries
 
 
 class AsyncioTestCase(unittest.TestCase):
