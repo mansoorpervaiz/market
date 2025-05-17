@@ -14,8 +14,16 @@ import asyncio
 import ssl
 import urllib.request
 from .alpha_vantage import AsyncAlphaVantageDownloader
+from data_manager.exceptions import (
+    SymbolError, InvalidSymbolError, SymbolNotFoundError,
+    DataDownloadError, APIError
+)
 from interfaces.data_access.symbol_manager_interface import SymbolManagerInterface
 from interfaces.data_access.downloader_interface import DownloaderInterface
+from logger import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
 
 
 class SymbolManager(SymbolManagerInterface):
@@ -39,10 +47,15 @@ class SymbolManager(SymbolManagerInterface):
         if symbols_file and symbols_file != "":
             # Check if the file exists before trying to read it
             if os.path.exists(symbols_file):
-                self.df = pd.read_csv(symbols_file)
-                self._load_symbols_from_dataframe()
+                try:
+                    self.df = pd.read_csv(symbols_file)
+                    self._load_symbols_from_dataframe()
+                    logger.info(f"Loaded {len(self.symbols)} symbols from {symbols_file}")
+                except Exception as e:
+                    logger.error(f"Error loading symbols from {symbols_file}: {str(e)}")
+                    raise SymbolError(f"Error loading symbols from {symbols_file}: {str(e)}") from e
             else:
-                print(f"Warning: Symbols file '{symbols_file}' does not exist. Initializing with empty symbols list.")
+                logger.warning(f"Symbols file '{symbols_file}' does not exist. Initializing with empty symbols list.")
 
     def _load_symbols_from_dataframe(self):
         """Load symbols from the dataframe."""
@@ -80,7 +93,12 @@ class SymbolManager(SymbolManagerInterface):
 
         try:
             # Read tables from the Wikipedia page
+            logger.info("Fetching Russell 1000 symbols from Wikipedia...")
             tables = pd.read_html(url)
+            logger.info(f"Found {len(tables)} tables on the Wikipedia page")
+        except Exception as e:
+            logger.error(f"Error fetching Russell 1000 symbols from Wikipedia: {str(e)}")
+            raise DataDownloadError(f"Error fetching Russell 1000 symbols from Wikipedia: {str(e)}") from e
         finally:
             # Restore the original urlopen function
             urllib.request.urlopen = original_urlopen
@@ -90,6 +108,7 @@ class SymbolManager(SymbolManagerInterface):
         for table in tables:
             if 'Ticker' in table.columns:
                 constituents_df = table
+                logger.debug("Found table with 'Ticker' column")
                 break
 
         if constituents_df is None:
@@ -97,10 +116,12 @@ class SymbolManager(SymbolManagerInterface):
             for table in tables:
                 if 'Symbol' in table.columns:
                     constituents_df = table
+                    logger.debug("Found table with 'Symbol' column")
                     break
 
         if constituents_df is None:
-            raise ValueError("Could not find Russell 1000 constituents table on Wikipedia")
+            logger.error("Could not find Russell 1000 constituents table on Wikipedia")
+            raise SymbolNotFoundError("Could not find Russell 1000 constituents table on Wikipedia")
 
         # Get the ticker/symbol column
         symbol_col = 'Ticker' if 'Ticker' in constituents_df.columns else 'Symbol'
@@ -120,23 +141,48 @@ class SymbolManager(SymbolManagerInterface):
         Args:
             exchanges: List of exchanges to fetch symbols for (e.g., ['NYSE', 'NASDAQ']).
                       If None, fetches symbols from all exchanges.
+
+        Raises:
+            SymbolError: If there's an error loading symbols
+            DataDownloadError: If there's an error downloading symbols from the API
         """
         if self.downloader is None:
-            raise ValueError("Downloader is required to fetch symbols from API")
+            logger.error("Downloader is required to fetch symbols from API")
+            raise SymbolError("Downloader is required to fetch symbols from API")
 
         self.symbols = []
 
-        if exchanges is None:
-            # Fetch symbols from all exchanges
-            self.symbols = await self.downloader.get_symbols()
-        else:
-            # Fetch symbols for each specified exchange
-            for exchange in exchanges:
-                exchange_symbols = await self.downloader.get_symbols(exchange)
-                self.symbols.extend(exchange_symbols)
+        try:
+            if exchanges is None:
+                # Fetch symbols from all exchanges
+                logger.info("Fetching symbols from all exchanges...")
+                self.symbols = await self.downloader.get_symbols()
+                logger.info(f"Fetched {len(self.symbols)} symbols from all exchanges")
+            else:
+                # Fetch symbols for each specified exchange
+                logger.info(f"Fetching symbols from exchanges: {exchanges}")
+                for exchange in exchanges:
+                    try:
+                        logger.debug(f"Fetching symbols for exchange: {exchange}")
+                        exchange_symbols = await self.downloader.get_symbols(exchange)
+                        logger.debug(f"Fetched {len(exchange_symbols)} symbols for exchange: {exchange}")
+                        self.symbols.extend(exchange_symbols)
+                    except (DataDownloadError, APIError) as e:
+                        logger.warning(f"Error fetching symbols for exchange {exchange}: {str(e)}")
+                        # Continue with other exchanges
 
-            # Remove duplicates
-            self.symbols = list(set(self.symbols))
+                # Remove duplicates
+                self.symbols = list(set(self.symbols))
+                logger.info(f"Fetched {len(self.symbols)} unique symbols from specified exchanges")
+
+            if not self.symbols:
+                logger.warning("No symbols were fetched from the API")
+        except (DataDownloadError, APIError) as e:
+            logger.error(f"Error fetching symbols from API: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error fetching symbols from API: {str(e)}")
+            raise SymbolError(f"Unexpected error fetching symbols from API: {str(e)}") from e
 
     def get_symbols_space_separated(self, symbol_count=None):
         """
@@ -160,21 +206,48 @@ class SymbolManager(SymbolManagerInterface):
         Args:
             file_path: Path to the file where symbols will be saved.
                       If not an absolute path, it will be relative to DATA_LOCATION.
+
+        Returns:
+            The full path to the saved file.
+
+        Raises:
+            SymbolError: If there's an error saving the symbols to the file.
         """
-        # If file_path is not an absolute path, make it relative to DATA_LOCATION
-        if not os.path.isabs(file_path):
-            # Check if we're in the project root or in a subdirectory
-            if os.path.exists("./data"):
-                file_path = os.path.join("./data", file_path)
-            else:
-                file_path = os.path.join(self.DATA_LOCATION, file_path)
+        try:
+            # If file_path is not an absolute path, make it relative to DATA_LOCATION
+            if not os.path.isabs(file_path):
+                # Check if we're in the project root or in a subdirectory
+                if os.path.exists("./data"):
+                    file_path = os.path.join("./data", file_path)
+                else:
+                    file_path = os.path.join(self.DATA_LOCATION, file_path)
 
-        # Ensure the directory exists
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            logger.debug(f"Saving symbols to file: {file_path}")
 
-        # Write symbols to file
-        with open(file_path, "w") as f:
-            for symbol in self.symbols:
-                f.write(symbol + "\n")
+            # Ensure the directory exists
+            try:
+                os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            except (OSError, PermissionError) as e:
+                logger.error(f"Error creating directory for {file_path}: {str(e)}")
+                raise SymbolError(f"Error creating directory for {file_path}: {str(e)}") from e
 
-        return file_path
+            # Check if we have symbols to save
+            if not self.symbols:
+                logger.warning("No symbols to save")
+
+            # Write symbols to file
+            try:
+                with open(file_path, "w") as f:
+                    for symbol in self.symbols:
+                        f.write(symbol + "\n")
+                logger.info(f"Saved {len(self.symbols)} symbols to {file_path}")
+            except (IOError, PermissionError) as e:
+                logger.error(f"Error writing symbols to {file_path}: {str(e)}")
+                raise SymbolError(f"Error writing symbols to {file_path}: {str(e)}") from e
+
+            return file_path
+        except Exception as e:
+            if not isinstance(e, SymbolError):
+                logger.error(f"Unexpected error saving symbols to file: {str(e)}")
+                raise SymbolError(f"Unexpected error saving symbols to file: {str(e)}") from e
+            raise
