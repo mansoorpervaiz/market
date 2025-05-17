@@ -13,9 +13,7 @@ import os
 import sys
 from datetime import datetime
 
-# Create logs directory if it doesn't exist
-logs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
-os.makedirs(logs_dir, exist_ok=True)
+from config import config
 
 # Configure the root logger
 def configure_logger(name=None):
@@ -24,12 +22,12 @@ def configure_logger(name=None):
     If name is None, returns the root logger.
     """
     logger = logging.getLogger(name)
-    
+
     # Only configure if handlers haven't been added yet
     if not logger.handlers:
         # Set the logging level
-        logger.setLevel(logging.INFO)
-        
+        logger.setLevel(config.get_log_level(config.LOG_LEVEL_CONSOLE))
+
         # Create formatters
         file_formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -37,26 +35,26 @@ def configure_logger(name=None):
         console_formatter = logging.Formatter(
             '%(levelname)s: %(message)s'
         )
-        
+
         # Create console handler
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setFormatter(console_formatter)
-        console_handler.setLevel(logging.INFO)
-        
+        console_handler.setLevel(config.get_log_level(config.LOG_LEVEL_CONSOLE))
+
         # Create file handler
-        log_filename = f"market_{datetime.now().strftime('%Y%m%d')}.log"
-        file_handler = logging.FileHandler(os.path.join(logs_dir, log_filename))
+        log_filename = datetime.now().strftime(config.LOG_FILENAME_FORMAT)
+        file_handler = logging.FileHandler(os.path.join(config.LOGS_DIR, log_filename))
         file_handler.setFormatter(file_formatter)
-        file_handler.setLevel(logging.DEBUG)
-        
+        file_handler.setLevel(config.get_log_level(config.LOG_LEVEL_FILE))
+
         # Add handlers to logger
         logger.addHandler(console_handler)
         logger.addHandler(file_handler)
-        
+
         # Prevent propagation to the root logger if this is a named logger
         if name:
             logger.propagate = False
-    
+
     return logger
 
 # Configure the root logger
