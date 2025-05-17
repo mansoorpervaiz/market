@@ -341,7 +341,7 @@ class BackTester(BackTesterInterface):
             equity_curve=equity_curve
         )
 
-    async def _backtest_sequential(self, strategy, symbol, start_date, end_date, data=None):
+    async def _backtest_sequential(self, strategy, symbol, start_date, end_date, data=None, chunk_size=None):
         """
         Run a backtest sequentially (without dask).
 
@@ -351,29 +351,99 @@ class BackTester(BackTesterInterface):
             start_date: The start date for the backtest.
             end_date: The end date for the backtest.
             data: Pre-processed data (optional). If None, data will be fetched and processed.
+            chunk_size: If provided, process data in chunks of this size to reduce memory usage.
 
         Returns:
             BacktestReport: A report containing the backtest results.
         """
-        # Get and process data if not provided
-        if data is None:
-            # Get price data
-            price_data = await self.data_reader.get_data(symbol, start_date, end_date)
-
-            # Generate signals
-            signals = await strategy.generate_signals(symbol, start_date, end_date)
-
-            # Merge price data with signals
-            data = pd.merge(price_data, signals, left_index=True, right_index=True, how='left')
-
         # Initialize variables
         capital = self.initial_capital
         position = 0  # 0 = no position, 1 = long position
         trades = []
         current_trade = None
-        equity_curve = pd.Series(index=data.index, dtype=float)
+        equity_curve_data = []
 
-        # Simulate trading
+        # Process data in chunks if requested
+        if chunk_size is not None and data is None:
+            # Get price data in chunks
+            price_data_chunks = self.data_reader.get_data(symbol, start_date, end_date, chunk_size=chunk_size)
+
+            # Generate signals in chunks
+            signals_chunks = await strategy.generate_signals(symbol, start_date, end_date, chunk_size=chunk_size)
+
+            # Process each chunk
+            for price_chunk, signals_chunk in zip(price_data_chunks, signals_chunks):
+                if price_chunk.empty or signals_chunk.empty:
+                    continue
+
+                # Merge price data with signals for this chunk
+                chunk_data = pd.merge(price_chunk, signals_chunk, left_index=True, right_index=True, how='left')
+
+                # Process this chunk
+                capital, position, trades, current_trade, chunk_equity = self._process_data_chunk(
+                    chunk_data, capital, position, trades, current_trade, symbol
+                )
+
+                # Append to equity curve
+                equity_curve_data.append(chunk_equity)
+
+            # Combine equity curve data
+            if equity_curve_data:
+                equity_curve = pd.concat(equity_curve_data)
+            else:
+                equity_curve = pd.Series(index=pd.date_range(start_date, end_date), dtype=float)
+        else:
+            # Get and process data if not provided (all at once)
+            if data is None:
+                # Get price data
+                price_data = await self.data_reader.get_data(symbol, start_date, end_date)
+
+                # Generate signals
+                signals = await strategy.generate_signals(symbol, start_date, end_date)
+
+                # Merge price data with signals
+                data = pd.merge(price_data, signals, left_index=True, right_index=True, how='left')
+
+            # Initialize equity curve
+            equity_curve = pd.Series(index=data.index, dtype=float)
+
+            # Process all data at once
+            capital, position, trades, current_trade, equity_curve = self._process_data_chunk(
+                data, capital, position, trades, current_trade, symbol, equity_curve
+            )
+
+        # Create and return the backtest report
+        return BacktestReport(
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            initial_capital=self.initial_capital,
+            final_capital=capital,
+            trades=trades,
+            equity_curve=equity_curve
+        )
+
+    def _process_data_chunk(self, data, capital, position, trades, current_trade, symbol, equity_curve=None):
+        """
+        Process a chunk of data for backtesting.
+
+        Args:
+            data: DataFrame containing price data and signals for this chunk
+            capital: Current capital
+            position: Current position (0 = no position, shares = long position)
+            trades: List of completed trades
+            current_trade: Current open trade (if any)
+            symbol: Stock symbol
+            equity_curve: Existing equity curve Series (optional)
+
+        Returns:
+            tuple: (capital, position, trades, current_trade, equity_curve)
+        """
+        # Initialize equity curve if not provided
+        if equity_curve is None:
+            equity_curve = pd.Series(index=data.index, dtype=float)
+
+        # Simulate trading for this chunk
         for date, row in data.iterrows():
             # Record equity at this point
             equity_curve[date] = capital if position == 0 else capital + position * row['close']
@@ -402,8 +472,8 @@ class BackTester(BackTesterInterface):
                 position = 0
                 current_trade = None
 
-        # Close any open position at the end of the backtest
-        if position > 0 and current_trade:
+        # If this is the last chunk, close any open position
+        if current_trade and position > 0 and data.index[-1] == data.index.max():
             last_price = data['close'].iloc[-1]
             capital += position * last_price * (1 - self.transaction_cost_pct / 100)
 
@@ -411,16 +481,11 @@ class BackTester(BackTesterInterface):
             current_trade.exit_price = last_price
             trades.append(current_trade)
 
-        # Create and return the backtest report
-        return BacktestReport(
-            symbol=symbol,
-            start_date=start_date,
-            end_date=end_date,
-            initial_capital=self.initial_capital,
-            final_capital=capital,
-            trades=trades,
-            equity_curve=equity_curve
-        )
+            # Reset position
+            position = 0
+            current_trade = None
+
+        return capital, position, trades, current_trade, equity_curve
 
     async def compare_strategies(self, strategies, symbol, start_date, end_date):
         """
