@@ -19,6 +19,14 @@ from io import StringIO
 
 from config import config
 from interfaces.data_access.downloader_interface import DownloaderInterface
+from data_manager.exceptions import (
+    APIError, RateLimitError, PremiumEndpointError, 
+    InvalidResponseError, DataDownloadError
+)
+from logger import get_logger
+
+# Initialize logger
+logger = get_logger(__name__)
 
 class AsyncAlphaVantageDownloader(DownloaderInterface):
     BASE_URL = config.ALPHA_VANTAGE_BASE_URL
@@ -106,17 +114,18 @@ class AsyncAlphaVantageDownloader(DownloaderInterface):
                     # Check for premium endpoint message
                     if 'Information' in data and 'premium' in data['Information'].lower():
                         error_msg = f"Premium endpoint error for {params['symbol']}: {data['Information']}"
-                        print(error_msg)
-                        raise ValueError(error_msg)  # Raise exception to stop execution
+                        logger.error(error_msg)
+                        raise PremiumEndpointError(error_msg)
                     if 'Error Message' in data:
                         error_msg = f"Error for {params['symbol']}: {data['Error Message']}"
-                        print(error_msg)
-                        raise ValueError(error_msg)
+                        logger.error(error_msg)
+                        raise APIError(error_msg)
 
                     # Check if response is empty
                     if not data:
                         # Empty response, likely due to rate limiting
-                        pass  # Fall through to retry
+                        logger.warning(f"Empty response for {params['symbol']}, likely due to rate limiting. Retrying...")
+                        raise RateLimitError(f"Empty response for {params['symbol']}, likely due to rate limiting")
                     # check for valid payload based on function
                     elif function == "TIME_SERIES_DAILY_ADJUSTED" and "Time Series (Daily)" in data:
                         return data
@@ -129,8 +138,10 @@ class AsyncAlphaVantageDownloader(DownloaderInterface):
                     # AlphaVantage will return a note or empty if rate‑limited
                 # fell through → retry
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                logger.warning(f"Network error for {params['symbol']} (attempt {attempt}/{self.RETRIES}): {str(e)}")
                 if attempt == self.RETRIES:
-                    raise
+                    logger.error(f"Failed to fetch data for {params['symbol']} after {self.RETRIES} attempts: {str(e)}")
+                    raise DataDownloadError(f"Failed to fetch data for {params['symbol']} after {self.RETRIES} attempts: {str(e)}") from e
             await asyncio.sleep(backoff)
             backoff *= 2
         # final fallback
@@ -177,8 +188,8 @@ class AsyncAlphaVantageDownloader(DownloaderInterface):
                             # Check for premium endpoint message
                             if 'Information' in data and 'premium' in data['Information'].lower():
                                 error_msg = f"Premium endpoint error: {data['Information']}"
-                                print(error_msg)
-                                raise ValueError(error_msg)  # Raise exception to stop execution
+                                logger.error(error_msg)
+                                raise PremiumEndpointError(error_msg)
                         except json.JSONDecodeError:
                             # Not valid JSON, continue with CSV parsing
                             pass
@@ -196,8 +207,10 @@ class AsyncAlphaVantageDownloader(DownloaderInterface):
 
                     return symbols
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                logger.warning(f"Network error while fetching symbols (attempt {attempt}/{self.RETRIES}): {str(e)}")
                 if attempt == self.RETRIES:
-                    raise
+                    logger.error(f"Failed to fetch symbols after {self.RETRIES} attempts: {str(e)}")
+                    raise DataDownloadError(f"Failed to fetch symbols after {self.RETRIES} attempts: {str(e)}") from e
             await asyncio.sleep(backoff)
             backoff *= 2
 
