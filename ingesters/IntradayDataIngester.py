@@ -8,6 +8,38 @@
 #
 # For licensing inquiries, contact: mansoorpervaizdev@gmail.com
 
+"""
+Intraday Data Ingester
+
+This module is responsible for downloading and storing intraday stock data for Russell 1000 constituents.
+It uses the Alpha Vantage API to fetch intraday stock data at various intervals (1min, 5min, 15min, etc.)
+and stores it in both JSON and pickle formats.
+
+The module uses the configuration system to determine where to store the data:
+- JSON files are stored in the directory: {config.DATA_ROOT_DIR}/intraday/json/{interval}/
+- Pickle files are stored in the directory: {config.DATA_ROOT_DIR}/intraday/pickle/{interval}/
+- Missing symbols are tracked in files within the intraday directory
+- Last processed symbols are tracked to allow resuming interrupted downloads
+
+Features:
+- Downloads data for multiple time intervals (configurable)
+- Processes data month by month to handle Alpha Vantage API's monthly data format
+- Combines data from multiple months into a single dataset for each symbol
+- Supports resuming interrupted downloads
+- Tracks missing symbols for later retry
+- Limits the number of symbols processed in a single run to manage API rate limits
+
+Usage:
+    python ingesters/IntradayDataIngester.py
+
+This will:
+1. Create necessary directories if they don't exist
+2. Fetch Russell 1000 symbols from Wikipedia
+3. Download intraday data for each symbol at the specified intervals
+4. Save the data in both JSON and pickle formats
+5. Track any symbols for which data could not be retrieved
+"""
+
 import asyncio
 import json
 import os
@@ -16,10 +48,12 @@ import aiohttp
 import ssl
 from datetime import datetime, timedelta
 import calendar
+from pathlib import Path
 
 from data_manager.alpha_vantage import AsyncAlphaVantageDownloader
 from data_manager.symbol_manager import SymbolManager
 from logger import get_logger
+from config import config
 
 # Initialize logger
 logger = get_logger(__name__)
@@ -48,9 +82,15 @@ async def process_symbol(symbol: str,
                          not_found: list,
                          sem: asyncio.Semaphore,
                          interval: str = "60min"):
-    # Create directory for this interval if it doesn't exist
-    os.makedirs(f"./data/intraday/json/{interval}", exist_ok=True)
-    os.makedirs(f"./data/intraday/pickle/{interval}", exist_ok=True)
+    # Create paths using configuration values
+    data_root = Path(config.DATA_ROOT_DIR)
+    intraday_dir = data_root / "intraday"
+    json_dir = intraday_dir / "json" / interval
+    pickle_dir = intraday_dir / "pickle" / interval
+
+    # Create directories if they don't exist
+    os.makedirs(json_dir, exist_ok=True)
+    os.makedirs(pickle_dir, exist_ok=True)
 
     # Generate list of months from Jan 2014 to current month
     months = generate_month_list(2014, 1)
@@ -117,12 +157,14 @@ async def process_symbol(symbol: str,
         }
 
         # write JSON
-        with open(f"./data/intraday/json/{interval}/{symbol}.json", "w") as f:
+        json_path = json_dir / f"{symbol}.json"
+        with open(json_path, "w") as f:
             json.dump(complete_data, f)
 
         # Save to pickle
         df = pd.DataFrame.from_dict(combined_time_series, orient="index")
-        df.to_pickle(f"./data/intraday/pickle/{interval}/{symbol}.pkl.gz", compression="gzip")
+        pickle_path = pickle_dir / f"{symbol}.pkl.gz"
+        df.to_pickle(pickle_path, compression="gzip")
 
         logger.info(f"Saved combined data for {symbol} with {len(combined_time_series)} total data points")
     else:
@@ -131,10 +173,14 @@ async def process_symbol(symbol: str,
 
 
 async def main():
+    # Create paths using configuration values
+    data_root = Path(config.DATA_ROOT_DIR)
+    intraday_dir = data_root / "intraday"
+
     # ensure base data folders exist
-    os.makedirs("./data/intraday", exist_ok=True)
-    os.makedirs("./data/intraday/json", exist_ok=True)
-    os.makedirs("./data/intraday/pickle", exist_ok=True)
+    os.makedirs(intraday_dir, exist_ok=True)
+    os.makedirs(intraday_dir / "json", exist_ok=True)
+    os.makedirs(intraday_dir / "pickle", exist_ok=True)
 
     # Define the intervals we want to download
     intervals = ["1min"] #, "5min", "15min", "30min", "60min"]
@@ -162,7 +208,7 @@ async def main():
 
     # Check for missing symbols files for each interval
     for interval in intervals:
-        missing_symbols_path = f"./data/intraday/missing_symbols_{interval}.txt"
+        missing_symbols_path = intraday_dir / f"missing_symbols_{interval}.txt"
         if os.path.exists(missing_symbols_path):
             logger.info(f"Found missing symbols file for {interval} at {missing_symbols_path}")
             with open(missing_symbols_path, "r") as f:
@@ -202,7 +248,7 @@ async def main():
             # If resume is enabled and no specific start symbol is provided,
             # try to read the last processed symbol from file
             if resume and not start_from_symbol:
-                last_symbol_file = f"./data/intraday/last_processed_symbol_{interval}.txt"
+                last_symbol_file = intraday_dir / f"last_processed_symbol_{interval}.txt"
                 if os.path.exists(last_symbol_file):
                     with open(last_symbol_file, "r") as f:
                         last_symbol = f.read().strip()
@@ -294,21 +340,23 @@ async def main():
             # so we can resume from there in the next run
             if max_symbols is not None and filtered_symbols:
                 last_symbol = filtered_symbols[-1]
-                with open(f"./data/intraday/last_processed_symbol_{interval}.txt", "w") as f:
+                last_symbol_file = intraday_dir / f"last_processed_symbol_{interval}.txt"
+                with open(last_symbol_file, "w") as f:
                     f.write(last_symbol)
-                logger.info(f"Last processed symbol: {last_symbol}, saved to ./data/intraday/last_processed_symbol_{interval}.txt")
+                logger.info(f"Last processed symbol: {last_symbol}, saved to {last_symbol_file}")
 
             # Reset start_from_symbol for the next interval
             # This is important because we want to resume from the correct symbol for each interval
             start_from_symbol = None
 
             # write missing symbols for this interval
-            with open(f"./data/intraday/missing_symbols_{interval}.txt", "w") as f:
+            missing_symbols_path = intraday_dir / f"missing_symbols_{interval}.txt"
+            with open(missing_symbols_path, "w") as f:
                 for sym in interval_not_found:
                     f.write(sym + "\n")
 
             not_found.extend(interval_not_found)
-            logger.info(f"Missing symbols for {interval} written to ./data/intraday/missing_symbols_{interval}.txt")
+            logger.info(f"Missing symbols for {interval} written to {missing_symbols_path}")
 
     logger.info("Intraday data ingestion complete.")
 
