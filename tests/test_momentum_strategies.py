@@ -30,7 +30,7 @@ from strategies.momentum import (
     BreakoutStrategy,
     RSIStrategy
 )
-from strategies.top_breakout_strategy import TopBreakoutStrategy, RankingCriteria
+from strategies.top_breakout_strategy import TopBreakoutStrategy, RankingCriteria, PositionSizeMethod
 
 
 class TestMomentumStrategies(unittest.TestCase):
@@ -441,6 +441,130 @@ class TestMomentumStrategies(unittest.TestCase):
             self.assertTrue((sells_after_buy['signal'] == Signal.SELL.value).any() or 
                            sells_after_buy.empty or sells_after_buy.index[-1] == signals.index[-1],
                            "No SELL signals were generated after BUY signals")
+
+
+    def test_top_breakout_strategy_with_position_sizing(self):
+        """Test the TopBreakoutStrategy with different position sizing methods."""
+        # Create data with clear breakout patterns
+        dates = pd.date_range(start='2023-01-01', end='2023-02-15', freq='D')
+        num_days = len(dates)
+
+        # Calculate segment sizes based on the total number of days
+        initial_segment = int(num_days * 0.3)  # 30% of days for initial period
+        breakout_segment = int(num_days * 0.2)  # 20% of days for breakout
+        uptrend_segment = int(num_days * 0.2)   # 20% of days for uptrend
+        pullback_segment = int(num_days * 0.2)  # 20% of days for pullback
+        final_segment = num_days - initial_segment - breakout_segment - uptrend_segment - pullback_segment  # Remaining days
+
+        # Create price segments
+        initial_prices = np.linspace(100, 105, initial_segment)
+        breakout_prices = np.linspace(105, 130, breakout_segment)
+        uptrend_prices = np.linspace(130, 150, uptrend_segment)
+        pullback_prices = np.linspace(150, 140, pullback_segment)
+        final_prices = np.linspace(140, 145, final_segment)
+
+        # Combine all price segments
+        prices = np.concatenate([
+            initial_prices,
+            breakout_prices,
+            uptrend_prices,
+            pullback_prices,
+            final_prices
+        ])
+
+        # Verify the length matches
+        assert len(prices) == num_days, f"Price array length {len(prices)} doesn't match date range length {num_days}"
+
+        # Create high and low prices
+        highs = prices * 1.02  # 2% higher than close
+        lows = prices * 0.98   # 2% lower than close
+
+        # Create volume with a spike during breakout
+        base_volume = np.ones(num_days) * 5000
+        # Add volume spike during breakout period
+        breakout_start = initial_segment
+        breakout_end = initial_segment + breakout_segment
+        base_volume[breakout_start:breakout_end] = 15000  # 3x normal volume during breakout
+
+        # Create test dataframe
+        test_data = pd.DataFrame({
+            'open': prices * 0.99,
+            'high': highs,
+            'low': lows,
+            'close': prices,
+            'adjusted_close': prices,
+            'volume': base_volume
+        }, index=dates.date)
+
+        # Configure the mock data_reader to return the test data
+        async def mock_get_data(*args, **kwargs):
+            return test_data
+
+        self.data_reader.get_data = mock_get_data
+
+        # For get_data_sync method
+        def mock_get_data_sync(symbol, start_date, end_date):
+            mask = (test_data.index >= start_date) & (test_data.index <= end_date)
+            return test_data.loc[mask]
+
+        self.data_reader.get_data_sync = mock_get_data_sync
+
+        # Mock the symbol manager to return a list of symbols
+        class MockSymbolManager:
+            def get_symbols_space_separated(self):
+                return ['AAPL', 'MSFT', 'GOOG']
+
+        # Test each position sizing method
+        position_size_methods = [
+            PositionSizeMethod.EQUAL_WEIGHT,
+            PositionSizeMethod.VOLATILITY_ADJUSTED,
+            PositionSizeMethod.PERFORMANCE_BASED
+        ]
+
+        for position_size_method in position_size_methods:
+            # Create the strategy with the current position sizing method
+            strategy = TopBreakoutStrategy(
+                data_reader=self.data_reader,
+                avg_period=5,            # Shorter period for testing
+                top_percent=50,          # Higher percentage to ensure our test symbol is selected
+                ranking_criteria=RankingCriteria.COMBINED_SCORE,
+                rebalance_days=7,
+                use_trailing_stop=True,
+                trailing_stop_pct=2.0,   # 2% trailing stop
+                position_size_method=position_size_method
+            )
+
+            # Replace the symbol manager with our mock
+            strategy.symbol_manager = MockSymbolManager()
+
+            # Run the strategy
+            start_date = date(2023, 1, 15)
+            end_date = date(2023, 2, 10)
+            signals = asyncio.run(strategy.generate_signals(
+                symbol='AAPL',
+                start_date=start_date,
+                end_date=end_date
+            ))
+
+            # Verify the results
+            self.assertIsInstance(signals, pd.DataFrame)
+            self.assertIn('signal', signals.columns)
+            self.assertIn('position_size', signals.columns)
+            self.assertTrue((signals['signal'].isin([Signal.BUY.value, Signal.SELL.value, Signal.HOLD.value])).all())
+
+            # Verify that at least one buy signal was generated
+            self.assertTrue((signals['signal'] == Signal.BUY.value).any(), 
+                           f"No BUY signals were generated for {position_size_method}")
+
+            # Verify that position sizes are set for buy signals
+            buy_signals = signals[signals['signal'] == Signal.BUY.value]
+            self.assertTrue((buy_signals['position_size'] > 0).all(), 
+                           f"Position sizes not set correctly for {position_size_method}")
+
+            # Verify that position sizes are valid (greater than 0 and less than or equal to 1)
+            for position_size in buy_signals['position_size']:
+                self.assertGreater(position_size, 0, "Position size should be greater than 0")
+                self.assertLessEqual(position_size, 1, "Position size should be less than or equal to 1")
 
 
 if __name__ == '__main__':

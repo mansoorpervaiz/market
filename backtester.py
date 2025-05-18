@@ -340,7 +340,16 @@ class BackTester(BackTesterInterface):
             # Process signals
             if row['signal'] == Signal.BUY.value and position == 0:
                 # Buy signal and no position - enter a new trade
-                position = capital / row['close']  # Number of shares
+
+                # Check if position_size column exists and use it for allocation
+                if 'position_size' in row and not pd.isna(row['position_size']):
+                    # Allocate capital based on position_size (as a fraction of available capital)
+                    allocated_capital = capital * row['position_size']
+                    position = allocated_capital / row['close']  # Number of shares
+                else:
+                    # Default behavior: allocate all available capital
+                    position = capital / row['close']  # Number of shares
+
                 capital -= position * row['close'] * (1 + self.transaction_cost_pct / 100)  # Deduct transaction costs
                 current_trade = Trade(
                     symbol=symbol,
