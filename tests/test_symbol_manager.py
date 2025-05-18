@@ -190,7 +190,7 @@ class AsyncSymbolManagerTests(unittest.TestCase):
 
         # Make the get_symbols method an AsyncMock
         self.mock_downloader.get_symbols = mock.AsyncMock()
-    
+
         # Make the get_symbols method an AsyncMock
         self.mock_downloader.get_symbols = mock.AsyncMock()
 
@@ -237,13 +237,26 @@ class AsyncSymbolManagerTests(unittest.TestCase):
         self.assertIn("GOOG", self.symbol_manager.symbols)
         self.assertIn("AMZN", self.symbol_manager.symbols)
 
-    async def test_load_symbols_from_api_no_downloader(self):
+    @mock.patch('data_manager.symbol_manager.AsyncAlphaVantageDownloader')
+    async def test_load_symbols_from_api_no_downloader(self, mock_downloader_class):
+        # Set up the mock to return a mock downloader instance
+        mock_downloader = mock.MagicMock()
+        mock_downloader.get_symbols = mock.AsyncMock(return_value=["AAPL", "MSFT"])
+        mock_downloader_class.return_value = mock_downloader
+
         # Initialize SymbolManager without a downloader
         symbol_manager = SymbolManager()
 
-        # Call the method and expect an exception
-        with self.assertRaises(SymbolError):
-            await symbol_manager.load_symbols_from_api()
+        # Call the method - it should now create a default downloader
+        await symbol_manager.load_symbols_from_api()
+
+        # Verify that the default downloader was created
+        mock_downloader_class.assert_called_once()
+
+        # Verify that the symbols were loaded
+        self.assertEqual(len(symbol_manager.symbols), 2)
+        self.assertIn("AAPL", symbol_manager.symbols)
+        self.assertIn("MSFT", symbol_manager.symbols)
 
     async def test_load_symbols_from_api_download_error(self):
         # Set up the mock to raise an exception
