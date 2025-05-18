@@ -188,6 +188,12 @@ class AsyncSymbolManagerTests(unittest.TestCase):
         # Create a mock downloader
         self.mock_downloader = mock.MagicMock(spec=AsyncAlphaVantageDownloader)
 
+        # Make the get_symbols method an AsyncMock
+        self.mock_downloader.get_symbols = mock.AsyncMock()
+    
+        # Make the get_symbols method an AsyncMock
+        self.mock_downloader.get_symbols = mock.AsyncMock()
+
         # Initialize SymbolManager with the mock downloader
         self.symbol_manager = SymbolManager(downloader=self.mock_downloader)
 
@@ -248,18 +254,25 @@ class AsyncSymbolManagerTests(unittest.TestCase):
             await self.symbol_manager.load_symbols_from_api()
 
 
-# Helper function to run async tests
-def run_async_test(coro):
-    return asyncio.run(coro)
+class AsyncioTestCase(unittest.TestCase):
+    """Base class for asyncio test cases."""
+
+    def run_async(self, coro):
+        """Run a coroutine in the event loop."""
+        return asyncio.run(coro)
 
 
-# Wrap async test methods to run them with run_async_test
+# Modify the AsyncSymbolManagerTests class to use AsyncioTestCase
+AsyncSymbolManagerTests.__bases__ = (AsyncioTestCase,)
+
+
+# Wrap async test methods to run them with run_async
 for name in dir(AsyncSymbolManagerTests):
     if name.startswith('test_') and asyncio.iscoroutinefunction(getattr(AsyncSymbolManagerTests, name)):
         method = getattr(AsyncSymbolManagerTests, name)
 
         def wrapper(self, method=method):
-            return run_async_test(method(self))
+            return self.run_async(method(self))
 
         setattr(AsyncSymbolManagerTests, name, wrapper)
 

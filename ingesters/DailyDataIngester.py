@@ -69,6 +69,8 @@ async def process_symbol(symbol: str,
         not_found.append(symbol)
 
 
+
+
 async def main():
     # ensure base data folders exist
     data_root = Path(config.DATA_ROOT_DIR)
@@ -106,7 +108,12 @@ async def main():
 
         # Load symbols for Russell 1000 constituents from Wikipedia
         logger.info("Fetching Russell 1000 symbols from Wikipedia...")
-        sm.load_russell_1000_symbols()
+        try:
+            sm.load_russell_1000_symbols()
+        except Exception as e:
+            logger.error(f"Error loading Russell 1000 symbols: {str(e)}")
+            # Continue with empty symbols list if loading fails
+            pass
 
         all_symbols = sm.get_symbols_space_separated()
         logger.info(f"Fetched {len(all_symbols)} symbols from Russell 1000 Index")

@@ -50,7 +50,8 @@ class TestBacktesterChunks(unittest.TestCase):
             chunks.append(self.sample_data.iloc[i:i+chunk_size].copy())
 
         # Configure the mock data_reader to return chunks
-        self.data_reader.get_data = mock.AsyncMock(return_value=chunks)
+        self.data_reader.get_data = mock.AsyncMock()
+        self.data_reader.get_data.return_value = chunks
 
         # Create signals with a buy at the beginning and sell at the end
         signals_chunks = []
@@ -71,7 +72,8 @@ class TestBacktesterChunks(unittest.TestCase):
 
         # Create a mock strategy that returns our signal chunks
         mock_strategy = mock.MagicMock()
-        mock_strategy.generate_signals = mock.AsyncMock(return_value=signals_chunks)
+        mock_strategy.generate_signals = mock.AsyncMock()
+        mock_strategy.generate_signals.return_value = signals_chunks
 
         # Run the backtest with chunks
         report = await self.backtester._backtest_sequential(
@@ -85,7 +87,7 @@ class TestBacktesterChunks(unittest.TestCase):
         # Verify the results
         self.assertEqual(report.symbol, 'AAPL')
         self.assertEqual(len(report.trades), 1)  # One complete trade
-        
+
         # Check the trade details
         trade = report.trades[0]
         self.assertEqual(trade.symbol, 'AAPL')
@@ -132,7 +134,7 @@ class TestBacktesterChunks(unittest.TestCase):
         self.assertEqual(len(trades), 1)  # One complete trade
         self.assertEqual(position, 0)  # No position at the end
         self.assertIsNone(current_trade)  # No open trade at the end
-        
+
         # Check the trade details
         trade = trades[0]
         self.assertEqual(trade.symbol, 'AAPL')
@@ -152,11 +154,13 @@ class TestBacktesterChunks(unittest.TestCase):
     async def test_error_handling_missing_data(self):
         """Test error handling when data is missing."""
         # Configure the mock data_reader to return empty data
-        self.data_reader.get_data = mock.AsyncMock(return_value=pd.DataFrame())
+        self.data_reader.get_data = mock.AsyncMock()
+        self.data_reader.get_data.return_value = pd.DataFrame()
 
         # Create a mock strategy that returns empty signals
         mock_strategy = mock.MagicMock()
-        mock_strategy.generate_signals = mock.AsyncMock(return_value=pd.DataFrame())
+        mock_strategy.generate_signals = mock.AsyncMock()
+        mock_strategy.generate_signals.return_value = pd.DataFrame()
 
         # Run the backtest
         report = await self.backtester.backtest(
@@ -186,7 +190,8 @@ class TestBacktesterChunks(unittest.TestCase):
         }, index=dates.date)
 
         # Configure the mock data_reader to return the short data
-        self.data_reader.get_data = mock.AsyncMock(return_value=short_data)
+        self.data_reader.get_data = mock.AsyncMock()
+        self.data_reader.get_data.return_value = short_data
 
         # Create signals with a buy on day 1 and sell on day 2
         signals = pd.DataFrame({
@@ -195,7 +200,8 @@ class TestBacktesterChunks(unittest.TestCase):
 
         # Create a mock strategy that returns our signals
         mock_strategy = mock.MagicMock()
-        mock_strategy.generate_signals = mock.AsyncMock(return_value=signals)
+        mock_strategy.generate_signals = mock.AsyncMock()
+        mock_strategy.generate_signals.return_value = signals
 
         # Run the backtest
         report = await self.backtester.backtest(
@@ -208,7 +214,7 @@ class TestBacktesterChunks(unittest.TestCase):
         # Verify the results
         self.assertEqual(report.symbol, 'AAPL')
         self.assertEqual(len(report.trades), 1)  # One complete trade
-        
+
         # Check the trade details
         trade = report.trades[0]
         self.assertEqual(trade.symbol, 'AAPL')

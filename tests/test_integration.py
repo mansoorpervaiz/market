@@ -59,6 +59,9 @@ class TestIntegration(unittest.TestCase):
         # Create a mock Alpha Vantage downloader
         self.mock_downloader = mock.MagicMock(spec=AsyncAlphaVantageDownloader)
 
+        # Make the download method an AsyncMock
+        self.mock_downloader.download = mock.AsyncMock()
+
         # Create a data reader with the mock downloader
         self.data_reader = DataReader(downloader=self.mock_downloader)
 
@@ -73,7 +76,8 @@ class TestIntegration(unittest.TestCase):
 
     @mock.patch('data_manager.data_reader.DataReader._load_data')
     @mock.patch('data_manager.data_reader.DataReader._save_data')
-    async def test_data_retrieval_workflow(self, mock_save, mock_load):
+    @mock.patch('data_manager.data_reader.DataReader._convert_dict_to_dataframe')
+    async def test_data_retrieval_workflow(self, mock_convert, mock_save, mock_load):
         """Test the data retrieval workflow: configuration → data download → data processing."""
         # Set up the mocks
         mock_load.side_effect = [
@@ -84,6 +88,9 @@ class TestIntegration(unittest.TestCase):
             # Subsequent calls: return the sample data
             self.sample_df
         ]
+
+        # Mock the convert_dict_to_dataframe method to return our sample data
+        mock_convert.return_value = self.sample_df
 
         # Mock the downloader to return sample data
         sample_time_series_data = {
@@ -134,7 +141,8 @@ class TestIntegration(unittest.TestCase):
         strategy = MomentumStrategy(data_reader=self.data_reader)
 
         # Mock the data_reader.get_data method to return our sample data
-        self.data_reader.get_data = mock.AsyncMock(return_value=self.sample_df)
+        self.data_reader.get_data = mock.AsyncMock()
+        self.data_reader.get_data.return_value = self.sample_df
 
         # Mock the generate_signals method to return buy and sell signals
         dates = pd.date_range(start='2023-01-01', end='2023-01-31', freq='D')
