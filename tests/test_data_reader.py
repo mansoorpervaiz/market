@@ -317,6 +317,294 @@ class TestDataReader(unittest.TestCase):
             expected_value = self.sample_df.loc[date(2023, 1, 31), 'close']
             self.assertEqual(value, expected_value)
 
+    @mock.patch('data_manager.data_reader.DataReader._download_and_save_data')
+    async def test_update_with_latest_data_success(self, mock_download_save):
+        """Test updating data with latest data from API."""
+        # Create a sample DataFrame with older data
+        dates = pd.date_range(start='2023-01-01', end='2023-01-10', freq='D')
+        old_df = pd.DataFrame({
+            'close': [100.0] * len(dates),
+            'open': [95.0] * len(dates),
+            'high': [105.0] * len(dates),
+            'low': [90.0] * len(dates),
+            'volume': [1000000] * len(dates),
+        }, index=dates.date)
+        old_df.index.name = 'date'
+
+        # Create a sample DataFrame with newer data
+        new_dates = pd.date_range(start='2023-01-11', end='2023-01-15', freq='D')
+        new_df = pd.DataFrame({
+            'close': [110.0] * len(new_dates),
+            'open': [105.0] * len(new_dates),
+            'high': [115.0] * len(new_dates),
+            'low': [100.0] * len(new_dates),
+            'volume': [1200000] * len(new_dates),
+        }, index=new_dates.date)
+        new_df.index.name = 'date'
+
+        # Set up the mock to return the new data
+        self.mock_downloader.download.return_value = self.sample_time_series_data
+        mock_download_save.return_value = new_df
+
+        # Mock the _convert_dict_to_dataframe method
+        with mock.patch.object(self.data_reader, '_convert_dict_to_dataframe', return_value=new_df):
+            # Mock the _save_data method
+            with mock.patch.object(self.data_reader, '_save_data') as mock_save:
+                # Call _update_with_latest_data
+                result = await self.data_reader._update_with_latest_data(
+                    symbol='AAPL',
+                    last_date_in_df=date(2023, 1, 10),
+                    previous_data=old_df
+                )
+
+                # Verify that the downloader was called
+                self.mock_downloader.download.assert_called_once_with('AAPL')
+
+                # Verify that the data was saved
+                mock_save.assert_called_once()
+
+                # Verify the result contains both old and new data
+                self.assertEqual(len(result), len(old_df) + len(new_df))
+                self.assertEqual(result.loc[date(2023, 1, 1), 'close'], 100.0)
+                self.assertEqual(result.loc[date(2023, 1, 15), 'close'], 110.0)
+
+    @mock.patch('data_manager.data_reader.DataReader._download_and_save_data')
+    async def test_update_with_latest_data_no_new_data(self, mock_download_save):
+        """Test updating data when there's no new data available."""
+        # Create a sample DataFrame
+        dates = pd.date_range(start='2023-01-01', end='2023-01-10', freq='D')
+        df = pd.DataFrame({
+            'close': [100.0] * len(dates),
+            'open': [95.0] * len(dates),
+            'high': [105.0] * len(dates),
+            'low': [90.0] * len(dates),
+            'volume': [1000000] * len(dates),
+        }, index=dates.date)
+        df.index.name = 'date'
+
+        # Set up the mock to return data with no new dates
+        self.mock_downloader.download.return_value = self.sample_time_series_data
+
+        # Mock the _convert_dict_to_dataframe method to return data with no new dates
+        with mock.patch.object(self.data_reader, '_convert_dict_to_dataframe', return_value=df):
+            # Call _update_with_latest_data
+            result = await self.data_reader._update_with_latest_data(
+                symbol='AAPL',
+                last_date_in_df=date(2023, 1, 10),
+                previous_data=df
+            )
+
+            # Verify that the downloader was called
+            self.mock_downloader.download.assert_called_once_with('AAPL')
+
+            # Verify the result is the same as the input data
+            pd.testing.assert_frame_equal(result, df)
+
+    @mock.patch('data_manager.data_reader.DataReader._download_and_save_data')
+    async def test_update_with_latest_data_download_error(self, mock_download_save):
+        """Test updating data when there's an error downloading new data."""
+        # Create a sample DataFrame
+        dates = pd.date_range(start='2023-01-01', end='2023-01-10', freq='D')
+        df = pd.DataFrame({
+            'close': [100.0] * len(dates),
+            'open': [95.0] * len(dates),
+            'high': [105.0] * len(dates),
+            'low': [90.0] * len(dates),
+            'volume': [1000000] * len(dates),
+        }, index=dates.date)
+        df.index.name = 'date'
+
+        # Set up the mock to raise an exception
+        self.mock_downloader.download.side_effect = DataDownloadError("API error")
+
+        # Call _update_with_latest_data
+        result = await self.data_reader._update_with_latest_data(
+            symbol='AAPL',
+            last_date_in_df=date(2023, 1, 10),
+            previous_data=df
+        )
+
+        # Verify that the downloader was called
+        self.mock_downloader.download.assert_called_once_with('AAPL')
+
+        # Verify the result is the same as the input data (no update due to error)
+        pd.testing.assert_frame_equal(result, df)
+
+    @mock.patch('data_manager.data_reader.DataReader._load_data')
+    @mock.patch('data_manager.data_reader.DataReader._download_and_save_data')
+    @mock.patch('data_manager.data_reader.DataReader._update_with_latest_data')
+    async def test_get_data_uncached_load_success(self, mock_update, mock_download, mock_load):
+        """Test _get_data_uncached when data is successfully loaded."""
+        # Clear the cache
+        DataReader._data_cache.clear()
+
+        # Set up the mocks
+        mock_load.return_value = self.sample_df
+
+        # Call _get_data_uncached
+        result = await self.data_reader._get_data_uncached(
+            symbol='AAPL',
+            start_date=date(2023, 1, 29),
+            end_date=date(2023, 1, 31)
+        )
+
+        # Verify that _load_data was called twice
+        self.assertEqual(mock_load.call_count, 2)
+        # First call is with symbol and filters
+        self.assertEqual(mock_load.call_args_list[0][0][0], 'AAPL')
+        # Second call is with symbol and columns=['close']
+        self.assertEqual(mock_load.call_args_list[1][0][0], 'AAPL')
+        self.assertEqual(mock_load.call_args_list[1][1]['columns'], ['close'])
+
+        # Verify that _download_and_save_data was not called
+        mock_download.assert_not_called()
+
+        # Verify the result
+        pd.testing.assert_frame_equal(result, self.sample_df)
+
+    @mock.patch('data_manager.data_reader.DataReader._load_data')
+    @mock.patch('data_manager.data_reader.DataReader._download_and_save_data')
+    async def test_get_data_uncached_download_when_not_found(self, mock_download, mock_load):
+        """Test _get_data_uncached when data is not found locally."""
+        # Clear the cache
+        DataReader._data_cache.clear()
+
+        # Set up the mocks
+        mock_load.side_effect = DataNotFoundError("Data not found")
+        mock_download.return_value = self.sample_df
+
+        # Call _get_data_uncached
+        result = await self.data_reader._get_data_uncached(
+            symbol='AAPL',
+            start_date=date(2023, 1, 29),
+            end_date=date(2023, 1, 31)
+        )
+
+        # Verify that _load_data was called once
+        mock_load.assert_called_once()
+
+        # Verify that _download_and_save_data was called
+        mock_download.assert_called_once_with('AAPL')
+
+        # Verify the result
+        pd.testing.assert_frame_equal(result, self.sample_df)
+
+    @mock.patch('data_manager.data_reader.DataReader._load_data')
+    @mock.patch('data_manager.data_reader.DataReader._download_and_save_data')
+    @mock.patch('data_manager.data_reader.DataReader._update_with_latest_data')
+    async def test_get_data_uncached_update_when_outdated(self, mock_update, mock_download, mock_load):
+        """Test _get_data_uncached when data is outdated."""
+        # Clear the cache
+        DataReader._data_cache.clear()
+
+        # Create outdated data (missing the latest date)
+        outdated_df = self.sample_df.iloc[:-1]
+
+        # Set up the mocks
+        mock_load.return_value = outdated_df
+        mock_update.return_value = self.sample_df
+
+        # Call _get_data_uncached
+        result = await self.data_reader._get_data_uncached(
+            symbol='AAPL',
+            start_date=date(2023, 1, 29),
+            end_date=date(2023, 1, 31)
+        )
+
+        # Verify that _load_data was called twice
+        self.assertEqual(mock_load.call_count, 2)
+
+        # Verify that _update_with_latest_data was called
+        mock_update.assert_called_once()
+
+        # Verify the result
+        pd.testing.assert_frame_equal(result, self.sample_df)
+
+    @mock.patch('pandas.read_parquet')
+    @mock.patch('os.path.exists')
+    @mock.patch('data_manager.data_reader.DataReader._download_and_save_data')
+    @mock.patch('data_manager.data_reader.DataReader._load_data')
+    async def test_get_data_chunked_existing_parquet(self, mock_load, mock_download, mock_exists, mock_read_parquet):
+        """Test _get_data_chunked with existing parquet file."""
+        # Set up the mocks
+        mock_exists.return_value = True
+
+        # Create a mock DataFrame with dates
+        dates = pd.date_range(start='2023-01-01', end='2023-01-10', freq='D')
+        df_index = pd.DataFrame(index=dates.date)
+        df_index.index.name = 'date'
+
+        # Create chunks of data
+        chunk1 = self.sample_df.iloc[:1]
+        chunk2 = self.sample_df.iloc[1:2]
+        chunk3 = self.sample_df.iloc[2:]
+
+        # Set up the mock to return the index DataFrame and then chunks
+        mock_read_parquet.return_value = df_index
+        mock_load.side_effect = [chunk1, chunk2, chunk3]
+
+        # Call _get_data_chunked
+        chunks = []
+        async for chunk in self.data_reader._get_data_chunked(
+            symbol='AAPL',
+            start_date=date(2023, 1, 1),
+            end_date=date(2023, 1, 10),
+            chunk_size=1
+        ):
+            chunks.append(chunk)
+
+        # Verify that read_parquet was called
+        mock_read_parquet.assert_called_once()
+
+        # Verify that _load_data was called for each chunk
+        self.assertEqual(mock_load.call_count, 3)
+
+        # Verify that _download_and_save_data was not called
+        mock_download.assert_not_called()
+
+        # Verify the chunks
+        self.assertEqual(len(chunks), 3)
+        pd.testing.assert_frame_equal(chunks[0], chunk1)
+        pd.testing.assert_frame_equal(chunks[1], chunk2)
+        pd.testing.assert_frame_equal(chunks[2], chunk3)
+
+    @mock.patch('os.path.exists')
+    @mock.patch('pandas.read_pickle')
+    @mock.patch('data_manager.data_reader.DataReader._save_data_parquet')
+    async def test_get_data_chunked_convert_from_pickle(self, mock_save_parquet, mock_read_pickle, mock_exists):
+        """Test _get_data_chunked converting from pickle to parquet."""
+        # Set up the mocks to indicate parquet doesn't exist but pickle does
+        mock_exists.side_effect = lambda path: '.pkl.gz' in path
+        mock_read_pickle.return_value = self.sample_df
+
+        # Mock pandas.read_parquet to return empty DataFrame for the first call (checking dates)
+        # and then return chunks for subsequent calls
+        with mock.patch('pandas.read_parquet') as mock_read_parquet:
+            # Set up mock to return empty DataFrame with date index
+            empty_df = pd.DataFrame(index=[])
+            empty_df.index.name = 'date'
+            mock_read_parquet.return_value = empty_df
+
+            # Call _get_data_chunked
+            chunks = []
+            async for chunk in self.data_reader._get_data_chunked(
+                symbol='AAPL',
+                start_date=date(2023, 1, 29),
+                end_date=date(2023, 1, 31),
+                chunk_size=1
+            ):
+                chunks.append(chunk)
+
+        # Verify that read_pickle was called
+        mock_read_pickle.assert_called_once()
+
+        # Verify that _save_data_parquet was called
+        mock_save_parquet.assert_called_once()
+
+        # Verify the chunks (should be empty since we mocked an empty DataFrame)
+        self.assertEqual(len(chunks), 1)
+        self.assertTrue(chunks[0].empty)
+
 
 class AsyncioTestCase(unittest.TestCase):
     """Base class for asyncio test cases."""
