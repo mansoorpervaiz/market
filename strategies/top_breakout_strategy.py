@@ -35,7 +35,8 @@ class TopBreakoutStrategy(MomentumStrategy):
     def __init__(self, data_reader, symbols_file="data/SP500.csv", 
                  avg_period=20, top_percent=10, 
                  ranking_criteria=RankingCriteria.COMBINED_SCORE,
-                 rebalance_days=7):
+                 rebalance_days=7,
+                 use_trailing_stop=True, trailing_stop_pct=2.0):
         """
         Initialize the Top Breakout strategy.
 
@@ -46,6 +47,8 @@ class TopBreakoutStrategy(MomentumStrategy):
             top_percent (int): Percentage of top stocks to select (default: 10%).
             ranking_criteria (RankingCriteria): Criteria for ranking stocks.
             rebalance_days (int): Number of days between rebalancing (default: 7 days).
+            use_trailing_stop (bool): Whether to use trailing stop for exits (default: True).
+            trailing_stop_pct (float): Percentage below recent high for trailing stop (default: 2.0%).
         """
         super().__init__(data_reader)
         self.symbols_file = symbols_file
@@ -70,6 +73,15 @@ class TopBreakoutStrategy(MomentumStrategy):
         self.symbol_manager = SymbolManager(symbols_file)
         self.selected_symbols = []
         self.last_rebalance_date = None
+
+        # Trailing stop parameters
+        self.use_trailing_stop = use_trailing_stop
+        self.trailing_stop_pct = trailing_stop_pct
+
+        # Position tracking for trailing stop
+        self.position_states = {}  # Dictionary to track position state for each symbol
+        self.highest_since_buy = {}  # Dictionary to track highest price since buy for each symbol
+        self.trailing_stops = {}  # Dictionary to track trailing stop levels for each symbol
 
     async def _calculate_metrics(self, symbols, current_date):
         """
@@ -267,9 +279,51 @@ class TopBreakoutStrategy(MomentumStrategy):
         Returns:
             pd.DataFrame: Updated signals DataFrame.
         """
+        # Check if we need to apply trailing stop logic
+        if self.use_trailing_stop:
+            # Apply trailing stop logic if we're in a position
+            if symbol in self.position_states and self.position_states[symbol] == 1:
+                # Get current price data for the symbol
+                try:
+                    # Get data for the current date
+                    df = self.data_reader.get_data_sync(symbol, current_date, current_date)
+                    if not df.empty:
+                        current_price = df.iloc[0]['close']
+
+                        # Check if price has fallen below trailing stop
+                        if current_price < self.trailing_stops[symbol]:
+                            signals.loc[current_date, 'signal'] = Signal.SELL.value
+                            # Reset position tracking for this symbol
+                            self.position_states[symbol] = 0
+                            self.highest_since_buy[symbol] = None
+                            self.trailing_stops[symbol] = None
+                            return signals
+
+                        # Update highest price and trailing stop
+                        self._update_trailing_stop(symbol, current_price)
+                except Exception as e:
+                    print(f"Error applying trailing stop for {symbol} on {current_date}: {e}")
+
+        # Regular signal generation logic
         if symbol in self.selected_symbols:
             # If the symbol is in our selected list, set a BUY signal
             signals.loc[current_date, 'signal'] = Signal.BUY.value
+
+            # Initialize or update position tracking for trailing stop
+            if self.use_trailing_stop:
+                try:
+                    # Get data for the current date
+                    df = self.data_reader.get_data_sync(symbol, current_date, current_date)
+                    if not df.empty:
+                        current_price = df.iloc[0]['close']
+
+                        # Initialize position tracking if not already in position
+                        if symbol not in self.position_states or self.position_states[symbol] == 0:
+                            self.position_states[symbol] = 1
+                            self.highest_since_buy[symbol] = current_price
+                            self.trailing_stops[symbol] = current_price * (1 - self.trailing_stop_pct/100)
+                except Exception as e:
+                    print(f"Error initializing trailing stop for {symbol} on {current_date}: {e}")
         else:
             # If the symbol was previously in our list but no longer is, set a SELL signal
             if current_date > start_date:
@@ -277,4 +331,25 @@ class TopBreakoutStrategy(MomentumStrategy):
                 if prev_date in signals.index and signals.loc[prev_date, 'signal'] == Signal.BUY.value:
                     signals.loc[current_date, 'signal'] = Signal.SELL.value
 
+                    # Reset position tracking for this symbol
+                    if self.use_trailing_stop and symbol in self.position_states:
+                        self.position_states[symbol] = 0
+                        self.highest_since_buy[symbol] = None
+                        self.trailing_stops[symbol] = None
+
         return signals
+
+    def _update_trailing_stop(self, symbol, current_price):
+        """
+        Update trailing stop values based on current price.
+
+        Args:
+            symbol (str): The stock symbol.
+            current_price (float): Current price of the symbol.
+        """
+        # Update highest price since buy if current price is higher
+        if self.highest_since_buy[symbol] is None or current_price > self.highest_since_buy[symbol]:
+            self.highest_since_buy[symbol] = current_price
+
+        # Update trailing stop based on highest price
+        self.trailing_stops[symbol] = self.highest_since_buy[symbol] * (1 - self.trailing_stop_pct/100)
