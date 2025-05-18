@@ -1,0 +1,8 @@
+# Development dependencies
+coverage>=7.3.2  # Code coverage tool
+pytest>=7.4.0    # Testing framework (optional, as the project uses unittest)
+pytest-cov>=4.1.0  # Coverage plugin for pytest (optional)
+flake8>=6.1.0    # Code linting (optional)
+
+# Include all production dependencies
+-r requirements.txt

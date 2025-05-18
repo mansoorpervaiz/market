@@ -333,6 +333,25 @@ Deploy the development environment:
    python -m unittest test_utils.py
    ```
 
+### Test Coverage
+
+The project now includes a code coverage tool to measure and improve test coverage:
+
+1. **Install Development Dependencies**:
+   ```bash
+   pip install -r requirements-dev.txt
+   ```
+
+2. **Run Tests with Coverage**:
+   ```bash
+   ./run_tests_with_coverage.sh
+   ```
+
+3. **View Coverage Report**:
+   The script will generate a terminal report and an HTML report. Open `htmlcov/index.html` in your browser to view the detailed coverage report.
+
+For more information about test coverage, see [COVERAGE.md](COVERAGE.md).
+
 ## Additional Resources
 
 ### Technical Analysis Methods
