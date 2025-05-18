@@ -44,11 +44,11 @@ class Configuration:
         self.DATA_ROOT_DIR = os.environ.get("DATA_ROOT_DIR", "data")
         self.DATA_PICKLE_LOCATION = os.environ.get(
             "DATA_PICKLE_LOCATION", 
-            os.path.join(os.getcwd(), "data")
+            os.path.join(self.DATA_ROOT_DIR, "daily", "pickle")
         )
         self.DATA_JSON_LOCATION = os.environ.get(
             "DATA_JSON_LOCATION", 
-            os.path.join(os.getcwd(), "data_json")
+            os.path.join(self.DATA_ROOT_DIR, "daily", "json")
         )
         self.DATA_PARQUET_LOCATION = os.environ.get(
             "DATA_PARQUET_LOCATION", 

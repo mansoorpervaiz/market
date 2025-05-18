@@ -501,7 +501,7 @@ class BreakoutStrategy(MomentumStrategy):
 
         # Check for empty dataframe
         if df.empty:
-            return pd.DataFrame(index=pd.date_range(start_date, end_date), columns=['signal']).fillna(Signal.HOLD.value)
+            return pd.DataFrame(index=pd.date_range(start_date, end_date), columns=['signal']).fillna(Signal.HOLD.value).infer_objects(copy=False)
 
         # Create a copy of the DataFrame to avoid SettingWithCopyWarning
         df = df.copy()
@@ -1082,7 +1082,7 @@ class RSIStrategy(MomentumStrategy):
         df = self._prepare_data(df)
 
         if df['rsi'].isna().all():
-            return pd.DataFrame(index=pd.date_range(start_date, end_date), columns=['signal']).fillna(Signal.HOLD.value)
+            return pd.DataFrame(index=pd.date_range(start_date, end_date), columns=['signal']).fillna(Signal.HOLD.value).infer_objects(copy=False)
 
         # Generate signals
         df = self._generate_signals(df)

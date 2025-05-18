@@ -522,6 +522,11 @@ class DataReader(DataReaderInterface):
 
         dataframe.rename(columns=column_mappings, inplace=True)
 
+        # Convert dividend_amount to string to avoid type issues with Parquet
+        if include_adjusted_close and 'dividend_amount' in dataframe.columns:
+            # First ensure all values are strings to avoid type conversion issues
+            dataframe['dividend_amount'] = dataframe['dividend_amount'].apply(lambda x: str(x) if pd.notnull(x) else '')
+
         # Convert volume to integer if it exists
         if 'volume' in dataframe.columns:
             dataframe['volume'] = dataframe['volume'].astype(int)

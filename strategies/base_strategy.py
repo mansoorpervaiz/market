@@ -14,6 +14,9 @@ from datetime import timedelta
 from enum import Enum
 from abc import ABC, abstractmethod
 
+# Set pandas option to opt-in to future behavior for downcasting
+pd.set_option('future.no_silent_downcasting', True)
+
 from interfaces.business_logic.strategy_interface import StrategyInterface
 from interfaces.data_access.data_reader_interface import DataReaderInterface
 
@@ -75,7 +78,7 @@ class BaseStrategy(StrategyInterface, ABC):
 
             # Check for empty dataframe
             if df.empty:
-                return pd.DataFrame(index=pd.date_range(start_date, end_date), columns=['signal']).fillna(Signal.HOLD.value)
+                return pd.DataFrame(index=pd.date_range(start_date, end_date), columns=['signal']).fillna(Signal.HOLD.value).infer_objects(copy=False)
 
             # Create a copy of the DataFrame to avoid SettingWithCopyWarning
             return df.copy()
@@ -346,7 +349,7 @@ class MomentumStrategy(BaseStrategy, IndicatorMixin):
         # Process each chunk
         for chunk in data_chunks:
             if chunk.empty:
-                yield pd.DataFrame(index=pd.date_range(start_date, end_date), columns=['signal']).fillna(Signal.HOLD.value)
+                yield pd.DataFrame(index=pd.date_range(start_date, end_date), columns=['signal']).fillna(Signal.HOLD.value).infer_objects(copy=False)
                 continue
 
             # Prepare data and generate signals for this chunk
