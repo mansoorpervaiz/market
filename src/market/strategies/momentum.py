@@ -201,7 +201,7 @@ class BreakoutStrategy(MomentumStrategy):
 
         # Check for empty dataframe
         if df.empty:
-            return pd.DataFrame(index=pd.date_range(start_date, end_date), columns=['signal']).fillna(Signal.HOLD.value)
+            return pd.DataFrame(index=pd.date_range(start_date, end_date), columns=['signal']).fillna(Signal.HOLD.value).infer_objects(copy=False)
 
         # Create a copy of the DataFrame to avoid SettingWithCopyWarning
         df = df.copy()
@@ -361,7 +361,7 @@ class RSIStrategy(MomentumStrategy):
 
         # Check for empty dataframe
         if df.empty:
-            return pd.DataFrame(index=pd.date_range(start_date, end_date), columns=['signal']).fillna(Signal.HOLD.value)
+            return pd.DataFrame(index=pd.date_range(start_date, end_date), columns=['signal']).fillna(Signal.HOLD.value).infer_objects(copy=False)
 
         # Create a copy of the DataFrame to avoid SettingWithCopyWarning
         df = df.copy()
@@ -381,7 +381,7 @@ class RSIStrategy(MomentumStrategy):
 
         # Check for NaN-only RSI output
         if df['rsi'].isna().all():
-            return pd.DataFrame(index=pd.date_range(start_date, end_date), columns=['signal']).fillna(Signal.HOLD.value)
+            return pd.DataFrame(index=pd.date_range(start_date, end_date), columns=['signal']).fillna(Signal.HOLD.value).infer_objects(copy=False)
 
         # Calculate moving average for trend filter if enabled
         if self.use_trend_filter:

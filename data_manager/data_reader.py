@@ -132,6 +132,14 @@ class DataReader(DataReaderInterface):
             if not all(isinstance(idx, date) for idx in df.index):
                 df.index = pd.to_datetime(df.index).date
 
+            # Add back dividend_amount and split_coefficient columns if they're missing
+            # This ensures consistency with data loaded from pickle
+            if 'dividend_amount' not in df.columns:
+                df['dividend_amount'] = 0.0
+
+            if 'split_coefficient' not in df.columns:
+                df['split_coefficient'] = 1.0
+
             return df
         except FileNotFoundError:
             logger.warning(f"Parquet file for {symbol} not found")
@@ -269,9 +277,23 @@ class DataReader(DataReaderInterface):
             # Sort by date for optimal querying
             df = df.sort_index()
 
+            # Remove problematic columns that cause issues with parquet format
+            columns_to_drop = []
+            if 'dividend_amount' in df.columns:
+                columns_to_drop.append('dividend_amount')
+            if 'split_coefficient' in df.columns:
+                columns_to_drop.append('split_coefficient')
+
+            if columns_to_drop:
+                # Create a new copy without the problematic columns
+                df_for_parquet = df.drop(columns=columns_to_drop)
+                logger.debug(f"Dropped columns {columns_to_drop} for parquet saving")
+            else:
+                df_for_parquet = df
+
             # Save with compression and row group optimization
             file_path = os.path.join(self.DATA_PARQUET_LOCATION, f"{symbol}.parquet")
-            df.to_parquet(
+            df_for_parquet.to_parquet(
                 file_path,
                 compression='snappy',  # Good balance of compression and speed
                 index=True,
@@ -521,6 +543,16 @@ class DataReader(DataReaderInterface):
             column_mappings['5. volume'] = FieldName.VOLUME.value
 
         dataframe.rename(columns=column_mappings, inplace=True)
+
+        # Convert dividend_amount and split_coefficient to numeric
+        if include_adjusted_close:
+            # Convert dividend_amount to numeric
+            if 'dividend_amount' in dataframe.columns:
+                dataframe['dividend_amount'] = pd.to_numeric(dataframe['dividend_amount'], errors='coerce')
+
+            # Convert split_coefficient to numeric
+            if 'split_coefficient' in dataframe.columns:
+                dataframe['split_coefficient'] = pd.to_numeric(dataframe['split_coefficient'], errors='coerce')
 
         # Convert volume to integer if it exists
         if 'volume' in dataframe.columns:
