@@ -162,8 +162,10 @@ class TopBreakoutStrategy(MomentumStrategy):
                     df['atr_ratio'] = df['atr'] / df['close'] * 100
 
                     # Get the latest ATR ratio
-                    if not pd.isna(latest.get('atr_ratio')):
-                        atr_ratio = latest['atr_ratio']
+                    # Check if 'atr_ratio' is in the latest row and is not NaN
+                    latest_atr_ratio = df['atr_ratio'].iloc[-1]
+                    if not pd.isna(latest_atr_ratio):
+                        atr_ratio = latest_atr_ratio
 
                 # Calculate volatility (standard deviation of returns) if needed for position sizing
                 volatility = None
