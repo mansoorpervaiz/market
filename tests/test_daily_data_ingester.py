@@ -65,7 +65,7 @@ class TestDailyDataIngester(unittest.TestCase):
         # Create a temporary directory for test files
         self.temp_dir = mock.MagicMock()
         self.temp_dir.name = "/tmp/test_daily_data"
-        
+
         # Mock config paths
         self.original_data_json_location = config.DATA_JSON_LOCATION
         self.original_data_pickle_location = config.DATA_PICKLE_LOCATION
@@ -86,16 +86,20 @@ class TestDailyDataIngester(unittest.TestCase):
         """Test successful processing of a symbol."""
         # Mock the DataFrame creation
         mock_df = mock.MagicMock()
+        mock_df.to_pickle = mock_to_pickle  # Attach the mock_to_pickle to the mock_df
         mock_from_dict.return_value = mock_df
 
         # Create a mock downloader that returns our sample data
         mock_downloader = mock.MagicMock()
-        mock_downloader.download = mock.AsyncMock(return_value=self.sample_time_series_data)
+        mock_downloader.download = mock.AsyncMock()
+        mock_downloader.download.return_value = self.sample_time_series_data
 
         # Create a mock semaphore
         mock_sem = mock.MagicMock()
-        mock_sem.__aenter__ = mock.AsyncMock(return_value=None)
-        mock_sem.__aexit__ = mock.AsyncMock(return_value=None)
+        mock_sem.__aenter__ = mock.AsyncMock()
+        mock_sem.__aenter__.return_value = None
+        mock_sem.__aexit__ = mock.AsyncMock()
+        mock_sem.__aexit__.return_value = None
 
         # Create a list to track not found symbols
         not_found = []
@@ -108,7 +112,8 @@ class TestDailyDataIngester(unittest.TestCase):
 
         # Verify that the JSON file was opened and written
         mock_open.assert_called_with(os.path.join(config.DATA_JSON_LOCATION, "AAPL.json"), "w")
-        mock_open().write.assert_called_once()
+        # The write method is called multiple times due to the json.dump implementation
+        self.assertTrue(mock_open().write.called)
 
         # Verify that the DataFrame was created and saved as pickle
         mock_from_dict.assert_called_once_with(self.sample_time_series_data["Time Series (Daily)"], orient="index")
@@ -134,12 +139,15 @@ class TestDailyDataIngester(unittest.TestCase):
 
         # Create a mock downloader that returns data with no time series
         mock_downloader = mock.MagicMock()
-        mock_downloader.download = mock.AsyncMock(return_value=data_no_time_series)
+        mock_downloader.download = mock.AsyncMock()
+        mock_downloader.download.return_value = data_no_time_series
 
         # Create a mock semaphore
         mock_sem = mock.MagicMock()
-        mock_sem.__aenter__ = mock.AsyncMock(return_value=None)
-        mock_sem.__aexit__ = mock.AsyncMock(return_value=None)
+        mock_sem.__aenter__ = mock.AsyncMock()
+        mock_sem.__aenter__.return_value = None
+        mock_sem.__aexit__ = mock.AsyncMock()
+        mock_sem.__aexit__.return_value = None
 
         # Create a list to track not found symbols
         not_found = []
@@ -152,7 +160,8 @@ class TestDailyDataIngester(unittest.TestCase):
 
         # Verify that the JSON file was opened and written
         mock_open.assert_called_with(os.path.join(config.DATA_JSON_LOCATION, "INVALID.json"), "w")
-        mock_open().write.assert_called_once()
+        # The write method is called multiple times due to the json.dump implementation
+        self.assertTrue(mock_open().write.called)
 
         # Verify that the symbol was added to the not_found list
         self.assertEqual(not_found, ["INVALID"])
@@ -176,19 +185,27 @@ class TestDailyDataIngester(unittest.TestCase):
         mock_symbol_manager = mock.MagicMock()
         mock_symbol_manager.get_symbols_space_separated.return_value = ["AAPL", "MSFT", "GOOG"]
         mock_symbol_manager.save_symbols_to_file.return_value = "symbols.txt"
+        # Make load_russell_1000_symbols a proper AsyncMock to ensure it's awaitable
+        mock_symbol_manager.load_russell_1000_symbols = mock.AsyncMock()
+        # Ensure the mock is returned regardless of constructor arguments
         mock_symbol_manager_class.return_value = mock_symbol_manager
 
         # Mock process_symbol to track calls
+        # Make sure it's an AsyncMock
+        if not isinstance(mock_process_symbol, mock.AsyncMock):
+            mock_process_symbol = mock.AsyncMock(side_effect=mock_process_symbol)
         mock_process_symbol.return_value = None
 
-        # Mock gather to return None
-        mock_gather.return_value = None
+        # Mock gather to be awaitable
+        async def mock_gather_impl(*args):
+            return None
+        mock_gather.side_effect = mock_gather_impl
 
         # Call the main function
         await main()
 
         # Verify that directories were created
-        self.assertEqual(mock_makedirs.call_count, 3)  # daily_dir, json_dir, pickle_dir
+        self.assertEqual(mock_makedirs.call_count, 4)  # data_root, daily_dir, json_dir, pickle_dir
 
         # Verify that SymbolManager was initialized and used
         mock_symbol_manager.load_russell_1000_symbols.assert_called_once()

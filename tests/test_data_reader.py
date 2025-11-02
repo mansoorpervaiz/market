@@ -31,6 +31,9 @@ class TestDataReader(unittest.TestCase):
         # Create a mock downloader
         self.mock_downloader = mock.MagicMock(spec=AsyncAlphaVantageDownloader)
 
+        # Make the download method an AsyncMock
+        self.mock_downloader.download = mock.AsyncMock()
+
         # Create the data reader with the mock downloader
         self.data_reader = DataReader(downloader=self.mock_downloader)
 

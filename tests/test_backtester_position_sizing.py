@@ -34,7 +34,7 @@ class TestBacktesterPositionSizing(unittest.TestCase):
             'volume': np.random.randint(1000, 10000, len(dates))
         }, index=dates.date)
 
-    def test_position_sizing_in_backtester(self):
+    async def test_position_sizing_in_backtester(self):
         """Test that the BackTester correctly uses position_size values from signals."""
         # Configure the mock data_reader to return the sample data
         async def mock_get_data(*args, **kwargs):
@@ -51,7 +51,8 @@ class TestBacktesterPositionSizing(unittest.TestCase):
 
         # Create a mock strategy that returns our signals
         mock_strategy = mock.MagicMock()
-        mock_strategy.generate_signals = mock.AsyncMock(return_value=signals)
+        mock_strategy.generate_signals = mock.AsyncMock()
+        mock_strategy.generate_signals.return_value = signals
 
         # Create a backtester
         backtester = BackTester(
@@ -61,12 +62,12 @@ class TestBacktesterPositionSizing(unittest.TestCase):
         )
 
         # Run the backtest
-        report = asyncio.run(backtester.backtest(
+        report = await backtester.backtest(
             strategy=mock_strategy,
             symbol='AAPL',
             start_date=date(2023, 1, 1),
             end_date=date(2023, 1, 31)
-        ))
+        )
 
         # Verify that the strategy's generate_signals method was called
         mock_strategy.generate_signals.assert_called_once()
@@ -96,7 +97,7 @@ class TestBacktesterPositionSizing(unittest.TestCase):
         # Verify that the final capital is close to the expected value
         self.assertAlmostEqual(report.final_capital, expected_final_capital, delta=0.01)
 
-    def test_multiple_position_sizes(self):
+    async def test_multiple_position_sizes(self):
         """Test that the BackTester correctly handles multiple trades with different position sizes."""
         # Configure the mock data_reader to return the sample data
         async def mock_get_data(*args, **kwargs):
@@ -115,7 +116,8 @@ class TestBacktesterPositionSizing(unittest.TestCase):
 
         # Create a mock strategy that returns our signals
         mock_strategy = mock.MagicMock()
-        mock_strategy.generate_signals = mock.AsyncMock(return_value=signals)
+        mock_strategy.generate_signals = mock.AsyncMock()
+        mock_strategy.generate_signals.return_value = signals
 
         # Create a backtester
         backtester = BackTester(
@@ -125,12 +127,12 @@ class TestBacktesterPositionSizing(unittest.TestCase):
         )
 
         # Run the backtest
-        report = asyncio.run(backtester.backtest(
+        report = await backtester.backtest(
             strategy=mock_strategy,
             symbol='AAPL',
             start_date=date(2023, 1, 1),
             end_date=date(2023, 1, 31)
-        ))
+        )
 
         # Verify the backtest results
         self.assertEqual(report.symbol, 'AAPL')

@@ -37,7 +37,8 @@ class TestBacktesterEdgeCases(unittest.TestCase):
     async def test_invalid_signals(self):
         """Test backtesting with invalid signals."""
         # Configure the mock data_reader to return the sample data
-        self.data_reader.get_data = mock.AsyncMock(return_value=self.sample_data.copy())
+        self.data_reader.get_data = mock.AsyncMock()
+        self.data_reader.get_data.return_value = self.sample_data.copy()
 
         # Create signals with invalid values
         dates = pd.date_range(start='2023-01-01', end='2023-01-31', freq='D')
@@ -47,7 +48,8 @@ class TestBacktesterEdgeCases(unittest.TestCase):
 
         # Create a mock strategy that returns our signals
         mock_strategy = mock.MagicMock()
-        mock_strategy.generate_signals = mock.AsyncMock(return_value=signals)
+        mock_strategy.generate_signals = mock.AsyncMock()
+        mock_strategy.generate_signals.return_value = signals
 
         # Create a backtester
         backtester = BackTester(
@@ -67,7 +69,7 @@ class TestBacktesterEdgeCases(unittest.TestCase):
         # Verify the results - invalid signals should be ignored
         self.assertEqual(report.symbol, 'AAPL')
         self.assertEqual(len(report.trades), 1)  # One complete trade
-        
+
         # Check the trade details
         trade = report.trades[0]
         self.assertEqual(trade.symbol, 'AAPL')
@@ -77,7 +79,8 @@ class TestBacktesterEdgeCases(unittest.TestCase):
     async def test_different_transaction_costs(self):
         """Test backtesting with different transaction costs."""
         # Configure the mock data_reader to return the sample data
-        self.data_reader.get_data = mock.AsyncMock(return_value=self.sample_data.copy())
+        self.data_reader.get_data = mock.AsyncMock()
+        self.data_reader.get_data.return_value = self.sample_data.copy()
 
         # Create signals with one buy and one sell
         dates = pd.date_range(start='2023-01-01', end='2023-01-31', freq='D')
@@ -87,7 +90,8 @@ class TestBacktesterEdgeCases(unittest.TestCase):
 
         # Create a mock strategy that returns our signals
         mock_strategy = mock.MagicMock()
-        mock_strategy.generate_signals = mock.AsyncMock(return_value=signals)
+        mock_strategy.generate_signals = mock.AsyncMock()
+        mock_strategy.generate_signals.return_value = signals
 
         # Test with different transaction costs
         transaction_costs = [0.0, 0.1, 0.5, 1.0, 2.0]
@@ -119,7 +123,8 @@ class TestBacktesterEdgeCases(unittest.TestCase):
     async def test_multiple_consecutive_signals(self):
         """Test backtesting with multiple consecutive buy/sell signals."""
         # Configure the mock data_reader to return the sample data
-        self.data_reader.get_data = mock.AsyncMock(return_value=self.sample_data.copy())
+        self.data_reader.get_data = mock.AsyncMock()
+        self.data_reader.get_data.return_value = self.sample_data.copy()
 
         # Create signals with multiple consecutive buys and sells
         dates = pd.date_range(start='2023-01-01', end='2023-01-31', freq='D')
@@ -131,7 +136,8 @@ class TestBacktesterEdgeCases(unittest.TestCase):
 
         # Create a mock strategy that returns our signals
         mock_strategy = mock.MagicMock()
-        mock_strategy.generate_signals = mock.AsyncMock(return_value=signals)
+        mock_strategy.generate_signals = mock.AsyncMock()
+        mock_strategy.generate_signals.return_value = signals
 
         # Create a backtester
         backtester = BackTester(
@@ -151,13 +157,13 @@ class TestBacktesterEdgeCases(unittest.TestCase):
         # Verify the results - only the first buy and first sell after that should be processed
         self.assertEqual(report.symbol, 'AAPL')
         self.assertEqual(len(report.trades), 2)  # Two complete trades
-        
+
         # Check the first trade
         trade1 = report.trades[0]
         self.assertEqual(trade1.symbol, 'AAPL')
         self.assertEqual(trade1.entry_date, date(2023, 1, 1))  # First buy signal
         self.assertEqual(trade1.exit_date, date(2023, 1, 5))  # First sell signal after buy
-        
+
         # Check the second trade
         trade2 = report.trades[1]
         self.assertEqual(trade2.symbol, 'AAPL')
@@ -167,7 +173,8 @@ class TestBacktesterEdgeCases(unittest.TestCase):
     async def test_no_sell_signal(self):
         """Test backtesting with a buy signal but no sell signal."""
         # Configure the mock data_reader to return the sample data
-        self.data_reader.get_data = mock.AsyncMock(return_value=self.sample_data.copy())
+        self.data_reader.get_data = mock.AsyncMock()
+        self.data_reader.get_data.return_value = self.sample_data.copy()
 
         # Create signals with only a buy signal
         dates = pd.date_range(start='2023-01-01', end='2023-01-31', freq='D')
@@ -177,7 +184,8 @@ class TestBacktesterEdgeCases(unittest.TestCase):
 
         # Create a mock strategy that returns our signals
         mock_strategy = mock.MagicMock()
-        mock_strategy.generate_signals = mock.AsyncMock(return_value=signals)
+        mock_strategy.generate_signals = mock.AsyncMock()
+        mock_strategy.generate_signals.return_value = signals
 
         # Create a backtester
         backtester = BackTester(
@@ -197,7 +205,7 @@ class TestBacktesterEdgeCases(unittest.TestCase):
         # Verify the results - position should be closed at the end of the backtest
         self.assertEqual(report.symbol, 'AAPL')
         self.assertEqual(len(report.trades), 1)  # One trade
-        
+
         # Check the trade details
         trade = report.trades[0]
         self.assertEqual(trade.symbol, 'AAPL')

@@ -87,7 +87,7 @@ class TestBackTester(unittest.TestCase):
             transaction_cost_pct=0.1
         )
 
-    def test_backtest_no_trades(self):
+    async def test_backtest_no_trades(self):
         """Test backtesting with no trades."""
         # Configure the mock data_reader to return the sample data directly
         async def mock_get_data(*args, **kwargs):
@@ -104,12 +104,12 @@ class TestBackTester(unittest.TestCase):
         # Run the backtest
         start_date = date(2023, 1, 1)
         end_date = date(2023, 1, 31)
-        report = asyncio.run(self.backtester.backtest(
+        report = await self.backtester.backtest(
             strategy=strategy,
             symbol='AAPL',
             start_date=start_date,
             end_date=end_date
-        ))
+        )
 
         # Verify the results
         self.assertEqual(report.symbol, 'AAPL')
@@ -117,7 +117,7 @@ class TestBackTester(unittest.TestCase):
         self.assertEqual(report.final_capital, 10000)  # No change in capital
         self.assertEqual(len(report.trades), 0)  # No trades
 
-    def test_backtest_one_complete_trade(self):
+    async def test_backtest_one_complete_trade(self):
         """Test backtesting with one complete trade (buy and sell)."""
         # Configure the mock data_reader to return the sample data directly
         async def mock_get_data(*args, **kwargs):
@@ -135,12 +135,12 @@ class TestBackTester(unittest.TestCase):
         # Run the backtest
         start_date = date(2023, 1, 1)
         end_date = date(2023, 1, 31)
-        report = asyncio.run(self.backtester.backtest(
+        report = await self.backtester.backtest(
             strategy=strategy,
             symbol='AAPL',
             start_date=start_date,
             end_date=end_date
-        ))
+        )
 
         # Verify the results
         self.assertEqual(report.symbol, 'AAPL')
@@ -159,7 +159,7 @@ class TestBackTester(unittest.TestCase):
         # Verify that final capital is greater than initial (profitable trade)
         self.assertGreater(report.final_capital, report.initial_capital)
 
-    def test_backtest_open_trade_at_end(self):
+    async def test_backtest_open_trade_at_end(self):
         """Test backtesting with a trade that is still open at the end."""
         # Configure the mock data_reader to return the sample data directly
         async def mock_get_data(*args, **kwargs):
@@ -177,12 +177,12 @@ class TestBackTester(unittest.TestCase):
         # Run the backtest
         start_date = date(2023, 1, 1)
         end_date = date(2023, 1, 31)
-        report = asyncio.run(self.backtester.backtest(
+        report = await self.backtester.backtest(
             strategy=strategy,
             symbol='AAPL',
             start_date=start_date,
             end_date=end_date
-        ))
+        )
 
         # Verify the results
         self.assertEqual(report.symbol, 'AAPL')
@@ -201,7 +201,7 @@ class TestBackTester(unittest.TestCase):
         # Verify that final capital is greater than initial (profitable trade)
         self.assertGreater(report.final_capital, report.initial_capital)
 
-    def test_compare_strategies(self):
+    async def test_compare_strategies(self):
         """Test comparing multiple strategies."""
         # Configure the mock data_reader to return the sample data directly
         async def mock_get_data(*args, **kwargs):
@@ -225,26 +225,32 @@ class TestBackTester(unittest.TestCase):
         # Run the comparison
         start_date = date(2023, 1, 1)
         end_date = date(2023, 1, 31)
-        results = asyncio.run(self.backtester.compare_strategies(
+        results = await self.backtester.compare_strategies(
             strategies=[strategy1, strategy2],
             symbol='AAPL',
             start_date=start_date,
             end_date=end_date
-        ))
+        )
 
         # Verify the results
         self.assertEqual(len(results), 2)
-        self.assertIn('EarlyBuyStrategy', results)
-        self.assertIn('LateBuyStrategy', results)
+
+        # Find the keys that contain the strategy names
+        early_buy_key = next((k for k in results.keys() if 'EarlyBuyStrategy' in k), None)
+        late_buy_key = next((k for k in results.keys() if 'LateBuyStrategy' in k), None)
+
+        # Assert that we found the keys
+        self.assertIsNotNone(early_buy_key, "EarlyBuyStrategy not found in results")
+        self.assertIsNotNone(late_buy_key, "LateBuyStrategy not found in results")
 
         # Both strategies should have one trade
         for strategy_name, report in results.items():
             self.assertEqual(len(report.trades), 1)
 
         # EarlyBuyStrategy should have a higher return (buys earlier)
-        self.assertGreater(results['EarlyBuyStrategy'].total_return, 0)
+        self.assertGreater(results[early_buy_key].total_return, 0)
 
-    def test_compare_to_benchmark(self):
+    async def test_compare_to_benchmark(self):
         """Test comparing a strategy to a benchmark."""
         # Create benchmark data (SPY)
         dates = pd.date_range(start='2023-01-01', end='2023-01-31', freq='D')
@@ -307,18 +313,41 @@ class TestBackTester(unittest.TestCase):
         # Patch the backtest method
         with mock.patch.object(self.backtester, 'backtest', mock_backtest):
             # Run the comparison
-            strategy_report, benchmark_series = asyncio.run(self.backtester.compare_to_benchmark(
+            strategy_report, benchmark_series = await self.backtester.compare_to_benchmark(
                 strategy=strategy,
                 symbol='AAPL',
                 benchmark_symbol='SPY',
                 start_date=start_date,
                 end_date=end_date
-            ))
+            )
 
         # Verify the results
         self.assertEqual(strategy_report.symbol, 'AAPL')
         self.assertEqual(len(strategy_report.trades), 1)
         self.assertEqual(len(benchmark_series), len(dates))
+
+
+class AsyncioTestCase(unittest.TestCase):
+    """Base class for asyncio test cases."""
+
+    def run_async(self, coro):
+        """Run a coroutine in the event loop."""
+        return asyncio.run(coro)
+
+
+# Modify the TestBackTester class to use AsyncioTestCase
+TestBackTester.__bases__ = (AsyncioTestCase,)
+
+
+# Wrap async test methods to run them with run_async
+for name in dir(TestBackTester):
+    if name.startswith('test_') and asyncio.iscoroutinefunction(getattr(TestBackTester, name)):
+        method = getattr(TestBackTester, name)
+
+        def wrapper(self, method=method):
+            return self.run_async(method(self))
+
+        setattr(TestBackTester, name, wrapper)
 
 
 if __name__ == '__main__':

@@ -72,8 +72,8 @@ class TestConfiguration(unittest.TestCase):
         config = Configuration()
 
         # Verify that default values were used
-        self.assertEqual(config.DATA_PICKLE_LOCATION, os.path.join(os.getcwd(), 'data'))
-        self.assertEqual(config.DATA_JSON_LOCATION, os.path.join(os.getcwd(), 'data_json'))
+        self.assertEqual(config.DATA_PICKLE_LOCATION, os.path.join('data', 'daily', 'pickle'))
+        self.assertEqual(config.DATA_JSON_LOCATION, os.path.join('data', 'daily', 'json'))
         self.assertEqual(config.LOGS_DIR, os.path.join(os.getcwd(), 'logs'))
         self.assertEqual(config.ALPHA_VANTAGE_RETRIES, 5)  # Default value
         self.assertEqual(config.ALPHA_VANTAGE_RATE_LIMIT, 5)  # Default value

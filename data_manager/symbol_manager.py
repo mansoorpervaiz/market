@@ -38,7 +38,7 @@ class SymbolManager(SymbolManagerInterface):
                          If provided, symbols will be loaded from this file.
                          If not provided, symbols will be fetched from Alpha Vantage API.
             downloader: Optional DownloaderInterface instance.
-                       Required if symbols_file is not provided.
+                       If not provided, a default AsyncAlphaVantageDownloader will be created when needed.
         """
         self.symbols = []
         self.downloader = downloader
@@ -147,8 +147,13 @@ class SymbolManager(SymbolManagerInterface):
             DataDownloadError: If there's an error downloading symbols from the API
         """
         if self.downloader is None:
-            logger.error("Downloader is required to fetch symbols from API")
-            raise SymbolError("Downloader is required to fetch symbols from API")
+            logger.info("Creating default AsyncAlphaVantageDownloader")
+            try:
+                from .alpha_vantage import AsyncAlphaVantageDownloader
+                self.downloader = AsyncAlphaVantageDownloader()
+            except Exception as e:
+                logger.error(f"Failed to create default downloader: {str(e)}")
+                raise SymbolError("Downloader is required to fetch symbols from API and could not create default downloader") from e
 
         self.symbols = []
 

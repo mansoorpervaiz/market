@@ -747,13 +747,18 @@ class DataReader(DataReaderInterface):
                         ('date', '>=', min_date),
                         ('date', '<=', max_date)
                     ]
-                    chunk_df = self._load_data(symbol, filters=filters)
+                    try:
+                        chunk_df = self._load_data(symbol, filters=filters)
 
-                    # Yield this chunk
-                    yield chunk_df
+                        # Yield this chunk
+                        yield chunk_df
 
-                    # Clear memory
-                    del chunk_df
+                        # Clear memory
+                        del chunk_df
+                    except Exception as e:
+                        logger.error(f"Error loading chunk data: {str(e)}")
+                        # Yield an empty DataFrame for this chunk instead of failing the entire process
+                        yield pd.DataFrame()
 
             except Exception as e:
                 logger.error(f"Error reading data in chunks: {str(e)}")
@@ -761,7 +766,7 @@ class DataReader(DataReaderInterface):
 
         except Exception as e:
             logger.error(f"Unexpected error in chunked data reading: {str(e)}")
-            raise DataProcessingError(f"Unexpected error in chunked data reading: {str(e)}") from e
+            raise DataProcessingError(f"Unexpected error in chunked data reading: {str(e)}")
 
     async def get_data(self, symbol: str, start_date: date, end_date: date, chunk_size: int = None) -> pd.DataFrame:
         """

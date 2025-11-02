@@ -255,7 +255,7 @@ class BackTester(BackTesterInterface):
         # Process data in chunks if requested
         if chunk_size is not None and data is None:
             # Get price data in chunks
-            price_data_chunks = self.data_reader.get_data(symbol, start_date, end_date, chunk_size=chunk_size)
+            price_data_chunks = await self.data_reader.get_data(symbol, start_date, end_date, chunk_size=chunk_size)
 
             # Generate signals in chunks
             signals_chunks = await strategy.generate_signals(symbol, start_date, end_date, chunk_size=chunk_size)
@@ -270,7 +270,7 @@ class BackTester(BackTesterInterface):
 
                 # Process this chunk
                 capital, position, trades, current_trade, chunk_equity = self._process_data_chunk(
-                    chunk_data, capital, position, trades, current_trade, symbol
+                    chunk_data, capital, position, trades, current_trade, symbol, end_date=end_date
                 )
 
                 # Append to equity curve
@@ -298,7 +298,7 @@ class BackTester(BackTesterInterface):
 
             # Process all data at once
             capital, position, trades, current_trade, equity_curve = self._process_data_chunk(
-                data, capital, position, trades, current_trade, symbol, equity_curve
+                data, capital, position, trades, current_trade, symbol, equity_curve, end_date=end_date
             )
 
         # Create and return the backtest report
@@ -312,7 +312,7 @@ class BackTester(BackTesterInterface):
             equity_curve=equity_curve
         )
 
-    def _process_data_chunk(self, data, capital, position, trades, current_trade, symbol, equity_curve=None):
+    def _process_data_chunk(self, data, capital, position, trades, current_trade, symbol, equity_curve=None, end_date=None):
         """
         Process a chunk of data for backtesting.
 
@@ -324,6 +324,7 @@ class BackTester(BackTesterInterface):
             current_trade: Current open trade (if any)
             symbol: Stock symbol
             equity_curve: Existing equity curve Series (optional)
+            end_date: End date of the backtest (optional)
 
         Returns:
             tuple: (capital, position, trades, current_trade, equity_curve)
@@ -371,7 +372,23 @@ class BackTester(BackTesterInterface):
                 current_trade = None
 
         # If this is the last chunk, close any open position
-        if current_trade and position > 0 and data.index[-1] == data.index.max():
+        # Note: data.index[-1] == data.index.max() is always true for any chunk
+        # We should only close the position if we're at the end of the backtest period
+
+        # Check if data is empty
+        if data.empty:
+            return capital, position, trades, current_trade, equity_curve
+
+        last_date = data.index[-1]
+        # Handle both datetime.date and datetime.datetime objects
+        if hasattr(last_date, 'date'):
+            last_date = last_date.date()
+
+        end_date_val = end_date
+        if hasattr(end_date, 'date'):
+            end_date_val = end_date.date()
+
+        if current_trade and position > 0 and last_date >= end_date_val:
             last_price = data['close'].iloc[-1]
             capital += position * last_price * (1 - self.transaction_cost_pct / 100)
 
